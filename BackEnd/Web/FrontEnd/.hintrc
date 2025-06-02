@@ -1,0 +1,20 @@
+{
+  "extends": [
+    "development"
+  ],
+  "hints": {
+    "compat-api/css": [
+      "default",
+      {
+        "ignore": [
+          "scrollbar-width",
+          "scrollbar-width: none",
+          "user-select",
+          "backdrop-filter",
+          "touch-action: none",
+          "-webkit-overflow-scrolling"
+        ]
+      }
+    ]
+  }
+}
