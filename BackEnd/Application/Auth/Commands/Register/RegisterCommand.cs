@@ -63,7 +63,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthResul
 
             if (string.IsNullOrEmpty(password) || string.IsNullOrWhiteSpace(password))
             {
-                password = "Da54321*";
+                password = "Ma2198.";
             }
 
             var user = new User

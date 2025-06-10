@@ -2,7 +2,7 @@
 
 namespace LawyerProject.Domain.Entities;
 
-public partial class User : IdentityUser
+public partial class User: IdentityUser
 {
     public string FirstName { get; set; } = null!;
 
@@ -31,7 +31,9 @@ public partial class User : IdentityUser
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual ICollection<RegionsUser> RegionsUsers { get; set; } = new List<RegionsUser>();
-
+    public virtual ICollection<SupportTicket> SupportTicketsAsRequester { get; set; } = new List<SupportTicket>();
+    public virtual ICollection<SupportTicket> SupportTicketsAsAgent { get; set; } = new List<SupportTicket>();
+    public virtual ICollection<TicketReply> TicketReplies { get; set; } = new List<TicketReply>();
     public virtual ICollection<Fcm> Fcms { get; set; } = new List<Fcm>();
     public virtual ICollection<EncryptedFileMetadata> UploadedFiles { get; set; } = new List<EncryptedFileMetadata>();
     public virtual ICollection<UserPreference> UserPreferences { get; set; } = new List<UserPreference>();

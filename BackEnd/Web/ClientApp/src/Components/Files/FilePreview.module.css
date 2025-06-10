@@ -1,0 +1,149 @@
+/* FilePreview.module.css */
+.fullscreenModal {
+  padding: 0 !important;
+  height: 100% !important;
+  width: 100% !important;
+  margin: 0px !important;
+  background-color: rgba(0, 0, 0, 0.9);
+}
+.fullscreenModal :global(.modal-content) {
+  height: 100vh !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+.fullscreenModal :global(.modal-header) {
+  background: #f8f9fa;
+}
+
+.previewContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  width: 100%;
+  height: calc(100vh - 60px);
+  background-color: #f8f9fa;
+  -webkit-overflow-scrolling: touch;
+}
+
+.previewContainer.notFullscreen {
+  height: 60vh;
+}
+
+.imagePreview, .pdfPreview, .pdfFallbackPreview {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+}
+
+.imagePreview {
+  cursor: grab;
+  background-color: #222;
+  user-select: none;
+  touch-action: none;
+}
+
+.imagePreview.notFullscreen {
+  height: 60vh;
+}
+
+.imagePreview.dragging {
+  cursor: grabbing;
+}
+
+.imagePreview canvas,
+.pdfPreview > div,
+.pdfFallbackPreview > div {
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  transition: transform 0.2s ease-out;
+}
+
+.pdfPreview {
+  background-color: #333;
+}
+
+.pdfPreview.notFullscreen {
+  height: 60vh;
+}
+
+.pdfFallbackPreview {
+  background-color: #333;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdfFallbackPreview.notFullscreen {
+  height: 60vh;
+}
+
+.controls {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 10px;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  z-index: 1000;
+  backdrop-filter: blur(5px);
+  max-width: 95vw;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.controlButton {
+  color: white !important;
+  padding: 5px 10px;
+  opacity: 0.8;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.controlButton:disabled {
+  opacity: 0.3;
+}
+
+.controlButton:hover {
+  color: #419FD9 !important;
+}
+
+.pageInfo {
+  color: white;
+  margin: 0 10px;
+  display: flex;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .controlButton {
+    min-width: 40px !important;
+    padding: 0.4rem !important;
+  }
+}
+
+.dragging {
+  cursor: grabbing;
+}

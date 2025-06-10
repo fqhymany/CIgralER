@@ -9,6 +9,7 @@ public class ChatRoom:BaseAuditableEntity
     public int? RegionId { get; set; }
     public string? CreatedById { get; set; }
     public string? GuestIdentifier { get; set; }
+    public ChatRoomType ChatRoomType { get; set; } = ChatRoomType.UserToUser;
 
     public virtual Region? Region { get; set; }
     public new virtual User CreatedBy { get; set; } = null!;

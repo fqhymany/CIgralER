@@ -1,0 +1,66 @@
+/* FileManagerDesktop.module.css */
+
+.table {
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.selectedRow {
+  background: rgba(0, 123, 255, 0.1);
+}
+
+.fileName {
+  cursor: pointer;
+}
+
+.actionBtn {
+  background: none;
+  border: none;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.iconButton {
+  color: #666;
+  padding: 0.25rem 0.5rem;
+  transition: color 0.2s;
+}
+
+.iconButton:hover {
+  color: #0d6efd;
+}
+
+.downloadButton:hover {
+  color: #198754;
+}
+
+.deleteButton:hover {
+  color: #dc3545;
+}
+
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1050;
+}
+
+.modalContent {
+  background: transparent;
+  padding: 20px;
+  border-radius: 8px;
+  width: 60%; 
+  max-height: 90vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}

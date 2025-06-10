@@ -34,7 +34,7 @@ public class UserConfiguration: IEntityTypeConfiguration<User>
         builder.HasMany(e => e.RegionsUsers)
             .WithOne(e => e.User)
             .HasForeignKey(e => e.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(e => e.UploadedFiles)
             .WithOne(e => e.UploadedBy)
