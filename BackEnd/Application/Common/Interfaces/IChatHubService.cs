@@ -8,5 +8,8 @@ public interface IChatHubService
     Task SendTypingIndicator(string roomId, TypingIndicatorDto indicator);
     Task NotifyUserOnline(Guid userId, bool isOnline);
     Task SendChatRoomUpdateToUser(string userId, ChatRoomDto roomDetails);
-    Task SendMessageUpdateToRoom(string roomId, object payload, string eventName = "MessageUpdated"); 
+    Task SendMessageUpdateToRoom(string roomId, object payload, string eventName = "MessageUpdated");
+    Task NotifyAgentOfNewChat(string agentId, int chatRoomId);
+    Task NotifyChatTransferred(string oldAgentId, int chatRoomId);
+    Task SendSupportChatUpdate(string connectionId, object update);
 }

@@ -42,4 +42,22 @@ public class ChatHubService : IChatHubService
     {
         await _hubContext.Clients.Group(roomId).SendAsync(eventName, payload);
     }
+
+    public async Task NotifyAgentOfNewChat(string agentId, int chatRoomId)
+    {
+        await _hubContext.Clients.User(agentId)
+            .SendAsync("NewSupportChat", new { ChatRoomId = chatRoomId });
+    }
+
+    public async Task NotifyChatTransferred(string oldAgentId, int chatRoomId)
+    {
+        await _hubContext.Clients.User(oldAgentId)
+            .SendAsync("ChatTransferred", new { ChatRoomId = chatRoomId });
+    }
+
+    public async Task SendSupportChatUpdate(string connectionId, object update)
+    {
+        await _hubContext.Clients.Client(connectionId)
+            .SendAsync("SupportChatUpdate", update);
+    }
 }

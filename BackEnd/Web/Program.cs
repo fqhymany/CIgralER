@@ -7,9 +7,12 @@ using LawyerProject.Infrastructure.Extensions;
 using LawyerProject.Infrastructure.Hubs;
 using LawyerProject.ServiceDefaults;
 using LawyerProject.Web;
+using LawyerProject.Web.EndPoints;
 using LawyerProject.Web.Middleware;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.AspNetCore.Http.Connections; // For HttpTransportType
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("LawyerProjectDb") ?? throw new InvalidOperationException("Connection string 'LawyerProjectDb' not found."); ;
@@ -28,7 +31,7 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-//    await app.InitialiseDatabaseAsync();
+    await app.InitialiseDatabaseAsync();
 }
 else
 {
@@ -37,7 +40,12 @@ else
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(
+        Path.Combine(builder.Environment.WebRootPath, "uploads")),
+    RequestPath = "/uploads"
+});
 app.UseRouting();
 app.UseCors("ReactApp");
 
@@ -54,9 +62,10 @@ app.UseAuthorization();
 app.UseAntiforgery();
 app.UseMiddleware<AuthorizationMiddleware>();
 app.MapRazorPages();
+app.MapHub<ChatHub>("/chathub");
+app.MapHub<GuestChatHub>("/guestchathub").RequireCors("ReactApp");
 app.MapDefaultEndpoints();
 app.MapEndpoints();
-app.MapHub<ChatHub>("/chathub");
 
 //app.MapFallbackToFile("index.html");
 //app.MapFallbackToFile("/app", "app.html");

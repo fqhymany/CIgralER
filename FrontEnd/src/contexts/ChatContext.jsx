@@ -363,12 +363,35 @@ export const ChatProvider = ({children}) => {
       // این رویداد از سرور با نام UserOnlineStatus می‌آید
       dispatch({
         type: ActionTypes.UPDATE_USER_ONLINE_STATUS,
-        payload: {userId: userData.UserId, isOnline: userData.IsOnline, user: {id: userData.UserId, userName: userData.UserName, avatar: userData.Avatar, connectedAt: new Date().toISOString()}},
+        payload: {
+          userId: userData.UserId,
+          isOnline: userData.IsOnline,
+          user: {
+            id: userData.UserId,
+            userName: userData.UserName || userData.FullName, // fallback to FullName
+            fullName: userData.FullName,
+            avatar: userData.Avatar,
+            connectedAt: new Date().toISOString(),
+          },
+        },
       });
     };
 
     const handleReceiveChatRoomUpdate = (roomData) => {
-      dispatch({type: ActionTypes.UPSERT_CHAT_ROOM, payload: roomData});
+      // اطمینان از وجود داده‌های صحیح
+      if (!roomData || typeof roomData.name !== 'string') {
+        console.error('Invalid room data received:', roomData);
+        return;
+      }
+
+      dispatch({
+        type: ActionTypes.UPSERT_CHAT_ROOM,
+        payload: {
+          ...roomData,
+          // اطمینان از string بودن name
+          name: String(roomData.name || ''),
+        },
+      });
     };
 
     const handleMessageRead = (readData) => {

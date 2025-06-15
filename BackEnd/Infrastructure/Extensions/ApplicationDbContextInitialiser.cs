@@ -74,21 +74,24 @@ public class ApplicationDbContextInitialiser
             Roles.Secretary,
             Roles.Client,
             Roles.Express,
-            Roles.Litigant
+            Roles.Litigant,
+            Roles.Agent
         };
 
         foreach (var roleName in roleNames)
         {
-            if (_roleManager.Roles.All(r => r.Name != roleName))
+            if (!_roleManager.Roles.All(r => r.Name != roleName))
             {
-                var role = new Role
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Name = roleName,
-                    NormalizedName = roleName.ToUpper()
-                };
-                await _roleManager.CreateAsync(role);
+                continue;
             }
+
+            var role = new Role
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = roleName,
+                NormalizedName = roleName.ToUpper()
+            };
+            await _roleManager.CreateAsync(role);
         }
         // Default users
         //var administrator = new User
@@ -492,7 +495,7 @@ public class ApplicationDbContextInitialiser
         //        }
         //    });
 
-        //    await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync();
         //}
     }
 

@@ -1,8 +1,6 @@
-// src/components/Chat/Chat.jsx
-// Main chat component that brings everything together
-
 import React, {useEffect, useState, useCallback} from 'react'; // useCallback اضافه شد
 import {Container, Row, Col, Card, Alert} from 'react-bootstrap'; // Alert برای نمایش خطا
+import {useNavigate} from 'react-router-dom'; // Add this import for useNavigate
 import {useChat} from '../../hooks/useChat';
 import ChatRoomList from './ChatRoomList.jsx';
 import MessageList from './MessageList.jsx';
@@ -13,6 +11,8 @@ import OnlineUsers from './OnlineUsers'; // برای نمایش کاربران �
 import ForwardMessageModal from './ForwardMessageModal';
 import TypingIndicatorComponent from './TypingIndicator';
 import useDevice from '../../customHooks/useDevice';
+import {useMobileNavigation} from '../../hooks/useMobileNavigation';
+import './Chat.css';
 
 const Chat = ({forceRoomId}) => {
   const {
@@ -38,6 +38,7 @@ const Chat = ({forceRoomId}) => {
   const {isMobile} = useDevice();
   const [mobileView, setMobileView] = useState('list'); // 'list' | 'chat'
   const isCurrentRoomGroupChat = currentRoom?.isGroup || false;
+  const navigate = useNavigate();
 
   // Load initial data on mount
   useEffect(() => {
@@ -107,6 +108,12 @@ const Chat = ({forceRoomId}) => {
     setMobileView('list');
   };
 
+  const handleMobileBack = () => {
+    navigate('/chats');
+  };
+  
+  useMobileNavigation(handleMobileBack);
+
   return (
     <Container fluid className="h-100 p-0" style={{minHeight: 'calc(100vh - 56px)', overflow: 'hidden'}}>
       {/* موبایل: فقط یکی از لیست یا چت */}
@@ -119,7 +126,7 @@ const Chat = ({forceRoomId}) => {
                   <h5 className="mb-0 fs-6">چت‌ها</h5>
                   <ConnectionStatus isConnected={isConnected} />
                 </Card.Header>
-                <Card.Body className="p-0 d-flex flex-column flex-grow-1" style={{overflowY: 'hidden'}}>
+                <Card.Body className="chat-list-container p-0 d-flex flex-column flex-grow-1">
                   <ChatRoomList
                     rooms={rooms}
                     currentRoom={currentRoom}
@@ -192,7 +199,7 @@ const Chat = ({forceRoomId}) => {
                 <h5 className="mb-0 fs-6">چت‌ها</h5>
                 <ConnectionStatus isConnected={isConnected} />
               </Card.Header>
-              <Card.Body className="p-0 d-flex flex-column flex-grow-1" style={{overflowY: 'hidden'}}>
+              <Card.Body className="chat-list-container p-0 d-flex flex-column flex-grow-1">
                 <ChatRoomList rooms={rooms} currentRoom={currentRoom} onRoomSelect={handleRoomSelect} onNewRoom={() => setShowNewRoomModal(true)} isLoading={isLoading && rooms.length === 0} />
               </Card.Body>
             </Card>

@@ -1,10 +1,10 @@
 // App.jsx
 
 import React, {Suspense} from 'react';
-import {Route, Routes, Navigate} from 'react-router-dom';
+import {Route, Routes} from 'react-router-dom';
 import AppRoutes from './AppRoutes';
-import {Layout} from './layouts/Layout'; // Import main layout
-import {LoginLayout} from './layouts/LoginLayout'; // Import login layout
+import {Layout} from './layouts/Layout';
+import {LoginLayout} from './layouts/LoginLayout';
 import {useAuth} from './contexts/AuthContext';
 import Login from './Pages/Login';
 import {ForgotPassword} from './Pages/ForgotPassword';
@@ -13,45 +13,24 @@ import 'react-toastify/dist/ReactToastify.css';
 import './assets/custom.css';
 import './assets/Font.css';
 import './assets/styles/CustomForms.css';
+import LiveChatWidget from './components/Chat/LiveChatWidget';
+import AgentDashboard from './components/Chat/AgentDashboard';
+import ChatRoom from './components/Chat/Chat';
+import ChatList from './components/Chat/ChatRoomList';
+import ProtectedRoute from './components/ProtectedRoute';
+import { isAgent } from './utils/isAgent';
 
-// Protected Route component
-const ProtectedRoute = ({children}) => {
-  const {user, isLoading} = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="d-flex justify-content-center align-items-center min-vh-100">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    // Save the attempted URL for redirecting after login
-    return <Navigate to="/login" replace />;
-  }
-
-  return children;
-};
 const renderRoutes = (routes) =>
   routes.map((route, index) => {
     const {children, element, requireAuth = true, layoutType = 'default', ...rest} = route;
 
     let wrappedElement;
 
-    // if (layoutType === 'admin') {
-    //   wrappedElement = element;
-    // } else {
-    //   wrappedElement = <Layout>{element}</Layout>;
-    // }
-
     switch (layoutType) {
       case 'admin':
         wrappedElement = element;
         break;
-      case 'none': // حالت بدون Layout
+      case 'none': // No layout wrapper
         wrappedElement = element;
         break;
       default:
@@ -64,8 +43,9 @@ const renderRoutes = (routes) =>
       </Route>
     );
   });
+
 export default function App() {
-  const {isLoading} = useAuth();
+  const { isLoading, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -76,6 +56,9 @@ export default function App() {
       </div>
     );
   }
+
+  // Check if the current user is an agent
+  const showLiveChatWidget = !isAgent(user);
 
   return (
     <>
@@ -89,7 +72,6 @@ export default function App() {
         }
       >
         <Routes>
-          {/* Route for login page */}
           <Route
             path="/login"
             element={
@@ -108,10 +90,35 @@ export default function App() {
             }
           />
 
-          {/* <Route path="/" element={<Navigate to="/" replace />} /> */}
+          {/* Chat routes */}
+          <Route
+            path="/chats"
+            element={
+              <ProtectedRoute>
+                <ChatList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chat/:roomId"
+            element={
+              <ProtectedRoute>
+                <ChatRoom />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/agent"
+            element={
+              <ProtectedRoute requiredRole="Agent">
+                <AgentDashboard />
+              </ProtectedRoute>
+            }
+          />
 
           {renderRoutes(AppRoutes)}
         </Routes>
+        {showLiveChatWidget && <LiveChatWidget />}
         <ToastContainer rtl={true} />
       </Suspense>
     </>

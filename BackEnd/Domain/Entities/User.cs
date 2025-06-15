@@ -37,4 +37,7 @@ public partial class User: IdentityUser
     public virtual ICollection<Fcm> Fcms { get; set; } = new List<Fcm>();
     public virtual ICollection<EncryptedFileMetadata> UploadedFiles { get; set; } = new List<EncryptedFileMetadata>();
     public virtual ICollection<UserPreference> UserPreferences { get; set; } = new List<UserPreference>();
+    public AgentStatus? AgentStatus { get; set; }
+    public int? MaxConcurrentChats { get; set; }
+    public int? CurrentActiveChats { get; set; }
 }

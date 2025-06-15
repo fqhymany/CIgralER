@@ -2,6 +2,7 @@
 
 public enum ChatRoomType
 {
-    UserToUser = 1,
-    Support = 2
+    UserToUser = 0,
+    Support = 1,
+    Group = 2
 }

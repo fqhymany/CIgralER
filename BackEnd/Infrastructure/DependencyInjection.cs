@@ -8,6 +8,7 @@ using LawyerProject.Infrastructure.Data.Interceptors;
 using LawyerProject.Infrastructure.Identity;
 using LawyerProject.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -91,11 +92,27 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "61DAA5BF628B41E298EF39D938B7DDE6D02A3E18");
         });
         builder.Services.AddAuthorization(options =>
-            options.AddPolicy(Policies.CanPurge, policy => policy.RequireRole(Roles.Administrator)));
+        {
+            options.AddPolicy(Policies.CanPurge, policy => 
+                policy.RequireRole(Roles.Administrator));
+            options.AddPolicy("Agent", policy =>
+                policy.RequireRole("Agent", "Admin"));
+            options.AddPolicy("RegisteredUser", policy =>
+                policy.RequireAuthenticatedUser());
+        });
 
         builder.Services.AddTransient<INotificationService, FirebaseNotificationService>();
 
-       
+        // Add Live Chat Support Services
+        builder.Services.AddScoped<IAgentAssignmentService, AgentAssignmentService>();
+        builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
+
+        // Configure file upload limits
+        builder.Services.Configure<FormOptions>(options =>
+        {
+            options.MultipartBodyLengthLimit = 10 * 1024 * 1024; // 10MB
+        });
+
     }
 
     public static IServiceCollection AddTokenService(this IServiceCollection services, IConfiguration configuration)

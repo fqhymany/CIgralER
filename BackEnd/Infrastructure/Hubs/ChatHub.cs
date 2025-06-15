@@ -249,4 +249,22 @@ public class ChatHub : Hub
                 .ToList()
         );
     }
+
+    public async Task DeleteMessage(int messageId)
+    {
+        var userId = _user.Id;
+        var message = await _context.ChatMessages
+            .Include(m => m.ChatRoom)
+            .FirstOrDefaultAsync(m => m.Id == messageId && m.SenderId == userId);
+
+        if (message != null)
+        {
+            message.IsDeleted = true;
+            await _context.SaveChangesAsync(CancellationToken.None);
+
+            // Broadcast to room
+            await Clients.Group(message.ChatRoomId.ToString())
+                .SendAsync("MessageDeleted", new { MessageId = messageId, ChatRoomId = message.ChatRoomId, IsDeleted = true });
+        }
+    }
 }

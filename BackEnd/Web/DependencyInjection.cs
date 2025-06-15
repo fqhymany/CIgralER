@@ -57,11 +57,11 @@ public static class DependencyInjection
 
         });
         builder.Services.Configure<GallerySettings>(builder.Configuration.GetSection("GallerySettings"));
-        
+
         builder.Services.AddSignalR(options =>
         {
-            options.EnableDetailedErrors = true;
             options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB
+            options.EnableDetailedErrors = true;
         });
 
         builder.Services.AddCors(options =>
@@ -85,7 +85,8 @@ public static class DependencyInjection
                         //    }
                         //    return false;
                         //})
-                        .SetIsOriginAllowed(origin => true).WithOrigins("http://localhost:44447", "http://localhost:5000", "http://localhost:5001", "http://192.168.1.10:120", "https://192.168.1.10", "http://dadvik.ir", "https://dadvik.ir")
+                        .SetIsOriginAllowed(origin => true)
+                        .WithOrigins("http://localhost:44447", "http://localhost:5000", "http://localhost:5001", "http://192.168.1.10:120", "https://192.168.1.10", "http://dadvik.ir", "https://dadvik.ir")
                         .AllowAnyMethod()
                         .AllowAnyHeader()
                         .AllowCredentials());

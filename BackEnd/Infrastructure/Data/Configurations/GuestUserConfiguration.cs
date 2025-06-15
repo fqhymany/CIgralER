@@ -4,14 +4,19 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace LawyerProject.Infrastructure.Data.Configurations;
 
-public class GuestUserConfiguration: IEntityTypeConfiguration<GuestUser>
+public class GuestUserConfiguration : IEntityTypeConfiguration<GuestUser>
 {
-    public void Configure(EntityTypeBuilder<GuestUser> builder)
+    public void Configure(EntityTypeBuilder<GuestUser> entity)
     {
-        builder.HasKey(e => e.Id);
-        builder.Property(e => e.Email).IsRequired().HasMaxLength(256);
-        builder.Property(e => e.PhoneNumber).IsRequired().HasMaxLength(50);
-        builder.Property(e => e.Name).HasMaxLength(256);
-        builder.HasIndex(e => new { e.Email, e.PhoneNumber }).IsUnique();
+        entity.HasKey(e => e.Id);
+        entity.Property(e => e.SessionId).IsRequired().HasMaxLength(100);
+        entity.Property(e => e.Name).HasMaxLength(100);
+        entity.Property(e => e.Email).HasMaxLength(256);
+        entity.Property(e => e.Phone).HasMaxLength(20);
+        entity.Property(e => e.IpAddress).IsRequired().HasMaxLength(45);
+        entity.Property(e => e.UserAgent).HasMaxLength(500);
+
+        entity.HasIndex(e => e.SessionId).IsUnique();
+        entity.HasIndex(e => e.Email);
     }
 }

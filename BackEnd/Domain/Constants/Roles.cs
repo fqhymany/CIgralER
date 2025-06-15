@@ -10,4 +10,5 @@ public abstract class Roles
     public const string Client = nameof(Client);//موکل
     public const string Express = nameof(Express);//مسئول پرونده
     public const string Litigant = nameof(Litigant);//طرف دعوی
+    public const string Agent = nameof(Agent);
 }

@@ -4,9 +4,11 @@
 /* --- Telegram-like & Responsive Chat Redesign --- */
 
 .chat-container {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
   background: #f8f9fa;
   font-family: 'Vazirmatn', 'IRANSans', Tahoma, Arial, sans-serif;
 }
@@ -30,13 +32,12 @@
 }
 
 .chat-header {
-  background: #fff;
-  border-bottom: 1px solid #e9ecef;
-  padding: 1rem 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  min-height: 70px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--header-bg, #fff);
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
 }
 
 .user-avatar {
@@ -58,11 +59,10 @@
 .chat-messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 1.5rem 1rem 0.5rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  background: #f8f9fa;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  scroll-behavior: smooth;
+  padding-bottom: 20px;
 }
 
 .message-bubble {
@@ -243,6 +243,12 @@
   border-color: #419fd9;
 }
 
+.message-status {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  font-size: 0.75rem;
+}
 /* Message status indicators */
 .message-status-sent {
   color: #6c757d;
@@ -325,6 +331,12 @@ audio {
   justify-content: space-between;
 }
 
+.chat-list-container {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Message bubbles */
 .message {
   max-width: 70%;
@@ -350,9 +362,13 @@ audio {
 
 /* Chat input area */
 .chat-input-container {
-  padding: 1rem;
-  background-color: #fff;
-  border-top: 1px solid #e9ecef;
+  position: sticky;
+  bottom: 0;
+  background: var(--input-bg, #fff);
+  border-top: 1px solid #e0e0e0;
+  padding: 10px;
+  flex-shrink: 0;
+  z-index: 100;
 }
 
 .chat-input-wrapper {
@@ -658,9 +674,15 @@ audio {
 }
 
 @keyframes highlight-fade {
-  0% { background: #fff9c4; }
-  80% { background: #fff9c4; }
-  100% { background: transparent; }
+  0% {
+    background: #fff9c4;
+  }
+  80% {
+    background: #fff9c4;
+  }
+  100% {
+    background: transparent;
+  }
 }
 
 /* Remove focus border from textarea */
@@ -675,18 +697,303 @@ audio {
 
 /* --- تغییرات جدید --- */
 .chat-message-list {
-    overflow-y: auto !important;
-    flex: 1;
-    max-height: calc(100vh - 220px); /* ارتفاع پویا */
-    min-height: 0;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    /* پس‌زمینه برای تست: حذف شود */
+  overflow-y: auto !important;
+  flex: 1;
+  max-height: calc(100vh - 220px); /* ارتفاع پویا */
+  min-height: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* پس‌زمینه برای تست: حذف شود */
 }
 .chat-message-list.scrollable {
-    overflow-y: auto !important;
+  overflow-y: auto !important;
 }
 /* حذف حدف‌کننده اسکرول‌بار */
 .chat-message-list::-webkit-scrollbar {
-    display: block; /* نمایش اسکرول‌بار برای نیاز */
+  display: block; /* نمایش اسکرول‌بار برای نیاز */
+}
+
+@supports (-webkit-touch-callout: none) {
+  .chat-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .chat-container {
+    height: 100vh;
+    height: calc(var(--vh, 1vh) * 100);
+  }
+}
+
+.keyboard-open .chat-messages-container {
+  padding-bottom: 50px;
+}
+
+.unread-badge {
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  transform: translateY(-50%);
+  background: #ff4444;
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  min-width: 20px;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* FrontEnd/src/styles/ChatApp.css */
+
+/* General Styles */
+.h-100 {
+  height: 100%;
+}
+
+.flex-fill {
+  flex: 1 1 auto;
+}
+
+.overflow-auto {
+  overflow: auto;
+}
+
+.position-fixed {
+  position: fixed;
+}
+
+/* Chat Widget Animations */
+.chat-widget-button {
+  transition: transform 0.2s ease;
+}
+
+.chat-widget-button:hover {
+  transform: scale(1.1);
+}
+
+/* Typing Animation */
+@keyframes bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-6px);
+  }
+}
+
+.typing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #6c757d;
+  display: inline-block;
+  animation: bounce 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+/* Message Bubbles */
+.message-bubble {
+  word-wrap: break-word;
+  max-width: 70%;
+}
+
+.message-bubble-own {
+  background-color: #0d6efd;
+  color: white;
+  border-radius: 18px 18px 4px 18px;
+}
+
+.message-bubble-other {
+  background-color: #f8f9fa;
+  color: #212529;
+  border-radius: 18px 18px 18px 4px;
+}
+
+/* Audio Player Custom */
+audio {
+  max-width: 250px;
+  height: 40px;
+}
+
+/* File Upload Progress */
+.upload-progress {
+  height: 4px;
+  background-color: #e9ecef;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-progress-bar {
+  height: 100%;
+  background-color: #0d6efd;
+  transition: width 0.3s ease;
+}
+
+/* Agent Dashboard Specific */
+.agent-status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.agent-status-available {
+  background-color: #28a745;
+}
+
+.agent-status-busy {
+  background-color: #ffc107;
+}
+
+.agent-status-away {
+  background-color: #fd7e14;
+}
+
+.agent-status-offline {
+  background-color: #6c757d;
+}
+
+/* Ticket List */
+.ticket-item {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.ticket-item:hover {
+  background-color: #f8f9fa;
+}
+
+.ticket-item.active {
+  background-color: #e7f1ff;
+  border-color: #0d6efd;
+}
+
+/* Scrollbar Styling */
+.overflow-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-auto::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.overflow-auto::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .chat-widget {
+    width: 100% !important;
+    height: 100% !important;
+    bottom: 0 !important;
+    right: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .agent-dashboard-sidebar {
+    width: 100% !important;
+  }
+
+  .d-md-flex {
+    display: block !important;
+  }
+}
+
+/* Voice Recording Animation */
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #fee;
+  padding: 8px 16px;
+  border-radius: 20px;
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #dc3545;
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Connection Status */
+.connection-status {
+  padding: 4px 12px;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.connection-reconnecting {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.connection-lost {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+/* Custom Bootstrap Overrides */
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+}
+
+.form-control:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Badge Positioning */
+.badge-notification {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+/* Smooth Transitions */
+* {
+  transition: background-color 0.2s ease, color 0.2s ease;
 }

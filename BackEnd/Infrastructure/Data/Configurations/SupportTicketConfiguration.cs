@@ -6,31 +6,37 @@ namespace LawyerProject.Infrastructure.Data.Configurations;
 
 public class SupportTicketConfiguration : IEntityTypeConfiguration<SupportTicket>
 {
-
-    public void Configure(EntityTypeBuilder<SupportTicket> builder)
+    public void Configure(EntityTypeBuilder<SupportTicket> entity)
     {
-        builder.HasKey(e => e.Id);
+        entity.HasKey(e => e.Id);
 
-        builder.HasOne(d => d.RequesterUser)
-            .WithMany(p => p.SupportTicketsAsRequester) // نیاز به افزودن ICollection<SupportTicket> SupportTicketsAsRequester در User.cs
-            .HasForeignKey(d => d.RequesterUserId)
-            .OnDelete(DeleteBehavior.NoAction); 
-
-        builder.HasOne(d => d.RequesterGuest)
-            .WithMany(p => p.SupportTickets)
-            .HasForeignKey(d => d.RequesterGuestId)
-            .OnDelete(DeleteBehavior.Cascade); // اگر مهمان حذف شد، تیکت هایش هم حذف شوند (یا SetNull)
-
-        builder.HasOne(d => d.AssignedAgent)
-            .WithMany(p => p.SupportTicketsAsAgent) // نیاز به افزودن ICollection<SupportTicket> SupportTicketsAsAgent در User.cs
-            .HasForeignKey(d => d.AssignedAgentUserId)
-            .OnDelete(DeleteBehavior.NoAction);
-
-        builder.HasOne(d => d.ChatRoom)
-            .WithOne()
-            .HasForeignKey<SupportTicket>(d => d.ChatRoomId)
+        entity.HasOne(ticket => ticket.RequesterUser)
+            .WithMany(user => user.SupportTicketsAsRequester)
+            .HasForeignKey(ticket => ticket.RequesterUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Property(e => e.Status).HasConversion<int>(); // ذخیره enum به عنوان int
+
+        entity.HasOne(ticket => ticket.AssignedAgent)
+            .WithMany(user => user.SupportTicketsAsAgent)
+            .HasForeignKey(ticket => ticket.AssignedAgentUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+
+
+        entity.HasOne(e => e.RequesterGuest)
+            .WithMany(g => g.SupportTickets)
+            .HasForeignKey(e => e.RequesterGuestId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(e => e.ChatRoom)
+            .WithOne()
+            .HasForeignKey<SupportTicket>(e => e.ChatRoomId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.Property(e => e.Status)
+            .HasConversion<int>();
+
+        entity.HasIndex(e => e.Status);
+        entity.HasIndex(e => e.AssignedAgentUserId);
     }
 }
