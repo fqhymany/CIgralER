@@ -16,6 +16,15 @@ const AgentDashboard = () => {
   const [availableAgents, setAvailableAgents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const handleJoinChat = (ticket) => {
+    // Navigate with proper URL structure
+    const chatUrl = `/chat/${ticket.chatRoomId}?support=true&ticketId=${ticket.id}`;
+    window.open(chatUrl, '_blank'); // Open in new tab for agent
+
+    // OR navigate in same window:
+    // navigate(chatUrl);
+  };
+
   useEffect(() => {
     loadTickets();
     loadAvailableAgents();
@@ -261,8 +270,8 @@ const AgentDashboard = () => {
                   </div>
 
                   <ButtonGroup>
-                    <Button variant="primary" onClick={() => window.open(`/chat/${selectedTicket.chatRoomId}`, '_blank')}>
-                      <MessageSquare size={16} className="me-2" />
+                    <Button variant="primary" size="sm" onClick={() => handleJoinChat(selectedTicket)} className="me-2">
+                      <MessageSquare size={16} className="me-1" />
                       ورود به چت
                     </Button>
 

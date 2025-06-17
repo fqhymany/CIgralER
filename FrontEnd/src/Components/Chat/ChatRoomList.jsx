@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef} from 'react';
+import React, {useState, useEffect, useRef, useMemo} from 'react';
 import {ListGroup, Button, Form, Spinner, Badge} from 'react-bootstrap';
 import {BiSearch} from 'react-icons/bi';
 import {BsPeopleFill, BsFillPersonFill} from 'react-icons/bs';
@@ -25,6 +25,27 @@ const ChatRoomList = ({rooms, currentRoom, onRoomSelect, onNewRoom, isLoading}) 
   const usersWithoutExistingChats = filteredUsers.filter((user) => {
     return !rooms.some((room) => !room.isGroup && (room.name === user.fullName || (room.members && room.members.some((member) => member.id === user.id))));
   });
+
+  const groupRoomsByType = (rooms) => {
+    const personal = [];
+    const groups = [];
+    const support = [];
+
+    rooms.forEach((room) => {
+      if (room.chatRoomType === 2) {
+        // Support type
+        support.push(room);
+      } else if (room.isGroup) {
+        groups.push(room);
+      } else {
+        personal.push(room);
+      }
+    });
+
+    return {personal, groups, support};
+  };
+
+  const groupedRooms = groupRoomsByType(filteredRooms);
 
   // دریافت لیست کاربران هنگام فوکوس روی کادر جستجو
   // دریافت لیست کاربران هنگام فوکوس روی کادر جستجو
@@ -213,6 +234,48 @@ const ChatRoomList = ({rooms, currentRoom, onRoomSelect, onNewRoom, isLoading}) 
                           <small className={`text-muted text-truncate ${room.unreadCount > 0 && currentRoom?.id !== room.id ? 'fw-bold' : ''}`} style={{fontSize: '0.8rem'}}>
                             {room.lastMessageSenderFullName && room.lastMessageContent ? `${room.lastMessageSenderFullName}: ${room.lastMessageContent}` : room.description || (room.isGroup ? 'گروه' : 'چت شخصی')}
                           </small>
+                        </div>
+                      </div>
+                    </div>
+                  </ListGroup.Item>
+                ))}
+              </>
+            )}
+
+            {/* Support Chats Section */}
+            {groupedRooms.support.length > 0 && (
+              <>
+                <ListGroup.Item className="border-0 border-bottom rounded-0 bg-light">
+                  <small className="text-muted d-flex align-items-center">
+                    <i className="bi bi-headset me-2"></i>
+                    پشتیبانی
+                  </small>
+                </ListGroup.Item>
+                {groupedRooms.support.map((room) => (
+                  <ListGroup.Item key={room.id} action active={currentRoom?.id === room.id} onClick={() => handleRoomSelect(room)} className="border-0 border-bottom rounded-0 chat-room-list-item position-relative">
+                    <div className="d-flex flex-row-reverse align-items-center">
+                      <div className="me-3 flex-shrink-0 position-relative">
+                        <div className="rounded-circle bg-warning text-white d-flex align-items-center justify-content-center" style={{width: '45px', height: '45px'}}>
+                          <i className="bi bi-headset" style={{fontSize: '20px'}}></i>
+                        </div>
+                        {room.unreadCount > 0 && (
+                          <Badge
+                            bg="primary"
+                            pill
+                            className="position-absolute top-0 start-100 translate-middle p-1 border border-light rounded-circle"
+                            style={{fontSize: '0.6rem', lineHeight: '1', minWidth: '18px', minHeight: '18px'}}
+                          >
+                            {room.unreadCount > 9 ? '9+' : room.unreadCount}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex-grow-1 min-width-0">
+                        <div className="d-flex justify-content-between align-items-start">
+                          <h6 className={`mb-0 text-truncate fw-semibold ${room.unreadCount > 0 ? 'text-primary' : ''}`}>{room.name}</h6>
+                          {room.lastMessageTime && <small className="text-muted flex-shrink-0 ms-2">{formatDate(room.lastMessageTime)}</small>}
+                        </div>
+                        <div className="d-flex justify-content-between align-items-center">
+                          <small className={`text-muted text-truncate ${room.unreadCount > 0 ? 'fw-bold' : ''}`}>{room.lastMessageContent || 'پشتیبانی آنلاین'}</small>
                         </div>
                       </div>
                     </div>

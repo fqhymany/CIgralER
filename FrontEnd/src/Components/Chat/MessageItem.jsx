@@ -305,17 +305,19 @@ const MessageItem = ({message, showSender = true, showAvatar = true, isGroupChat
   };
 
   const renderDeliveryStatusIcon = () => {
-    if (!isOwnMessage || message.type === MessageType.System) return null;
+    if (!message.deliveryStatus && message.deliveryStatus !== 0) {
+      return <i className="bi bi-clock ms-1 text-muted" title="در حال ارسال..."></i>;
+    }
 
     switch (message.deliveryStatus) {
-      case MessageDeliveryStatus.Sent:
-        return <i className="bi bi-check ms-1" title="ارسال شد"></i>; // یک تیک (خاکستری)
-      // case MessageDeliveryStatus.Delivered: // اگر پیاده‌سازی شود
-      //   return <i className="bi bi-check2 ms-1" title="تحویل داده شد"></i>; // دو تیک (خاکستری)
-      case MessageDeliveryStatus.Read:
-        return <i className="bi bi-check2-all ms-1 text-primary" title="خوانده شد"></i>; // دو تیک (آبی)
+      case 0: // Sent
+        return <i className="bi bi-check ms-1 text-muted" title="ارسال شده"></i>;
+      case 1: // Delivered
+        return <i className="bi bi-check2 ms-1 text-success" title="تحویل داده شده"></i>;
+      case 2: // Read
+        return <i className="bi bi-check2-all ms-1 text-primary" title="خوانده شده"></i>;
       default:
-        return <i className="bi bi-clock ms-1" title="در حال ارسال..."></i>; // یا آیکون ارسال اولیه
+        return <i className="bi bi-clock ms-1 text-muted" title="در حال ارسال..."></i>;
     }
   };
 
@@ -377,7 +379,7 @@ const MessageItem = ({message, showSender = true, showAvatar = true, isGroupChat
     // If others delete their messages and you don't want to show options
     return (
       /* Render the deleted message placeholder */
-      <div className={`d-flex mb-1 message-item-wrapper ${isOwnMessage ? 'justify-content-start' : 'justify-content-end'}`}> 
+      <div className={`d-flex mb-1 message-item-wrapper ${isOwnMessage ? 'justify-content-start' : 'justify-content-end'}`}>
         <div className={`message-bubble ${isOwnMessage ? 'message-sent' : 'message-received'}`} style={{maxWidth: '70%'}}>
           <div className="text-muted fst-italic">[پیام حذف شد]</div>
           <div className={`mt-1 d-flex align-items-center ${isOwnMessage ? 'justify-content-end' : 'justify-content-start'}`}>
@@ -394,7 +396,7 @@ const MessageItem = ({message, showSender = true, showAvatar = true, isGroupChat
   const scrollToOriginalMessage = (replyToMessageId) => {
     const el = document.getElementById(`message-${replyToMessageId}`);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.scrollIntoView({behavior: 'smooth', block: 'center'});
       el.classList.add('highlighted-message');
       setTimeout(() => {
         el.classList.remove('highlighted-message');
@@ -403,10 +405,7 @@ const MessageItem = ({message, showSender = true, showAvatar = true, isGroupChat
   };
 
   return (
-    <div
-      id={`message-${message.id}`}
-      className={`d-flex mb-1 message-item-wrapper ${isOwnMessage ? 'justify-content-start' : 'justify-content-end'}`}
-    >
+    <div id={`message-${message.id}`} className={`d-flex mb-1 message-item-wrapper ${isOwnMessage ? 'justify-content-start' : 'justify-content-end'}`}>
       {/* Avatar (for other users in group chats) */}
       {!isOwnMessage && showAvatar && isGroupChat && (
         <div className="me-2 flex-shrink-0">

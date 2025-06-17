@@ -109,8 +109,12 @@ class SignalRService {
       this.notifyListeners('MessageEdited', messageDto);
     });
 
+    this.connection.on('UnreadCountUpdate', (data) => {
+      // data: { roomId, unreadCount }
+      this.notifyListeners('unreadCountUpdate', data);
+    });
+
     this.connection.on('MessageDeleted', (payload) => {
-      // payload شامل: { MessageId, ChatRoomId, IsDeleted }
       this.notifyListeners('MessageDeleted', payload);
     });
 
@@ -149,11 +153,15 @@ class SignalRService {
   }
 
   // Mark message as read
-  async markMessageAsRead(messageId) {
-    if (this.connection && this.isConnected) {
-      await this.connection.invoke('MarkMessageAsRead', messageId.toString());
+  async markMessageAsRead(messageId, roomId) {
+  if (this.connection && this.isConnected) {
+    try {
+      await this.connection.invoke('MarkMessageAsRead', messageId.toString(), roomId.toString());
+    } catch (error) {
+      console.error('Error marking message as read:', error);
     }
   }
+}
 
   // Add event listener
   addEventListener(event, callback) {

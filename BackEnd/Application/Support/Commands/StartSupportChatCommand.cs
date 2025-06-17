@@ -38,70 +38,36 @@ public class StartSupportChatCommandHandler : IRequestHandler<StartSupportChatCo
         _chatHubService = chatHubService;
     }
 
-    public async Task<StartSupportChatResult> Handle(
-        StartSupportChatCommand request,
-        CancellationToken cancellationToken)
+    public async Task<StartSupportChatResult> Handle(StartSupportChatCommand request, CancellationToken cancellationToken)
     {
-        // 1. ایجاد یا یافتن Guest User
+        // 1. مدیریت Guest User
         GuestUser? guestUser = null;
-        // Replace the existing GuestUser creation block with this:
-        if (!string.IsNullOrEmpty(request.GuestSessionId))
+        if (string.IsNullOrEmpty(request.UserId))
         {
-            // Try to find existing guest user, include any that might be inactive
             guestUser = await _context.GuestUsers
                 .FirstOrDefaultAsync(g => g.SessionId == request.GuestSessionId, cancellationToken);
 
             if (guestUser == null)
             {
-                // Check if this session ID exists but was deleted
-                var existingInactive = await _context.GuestUsers
-                    .IgnoreQueryFilters() // In case you have soft delete filters
-                    .FirstOrDefaultAsync(g => g.SessionId == request.GuestSessionId, cancellationToken);
-
-                if (existingInactive != null)
+                guestUser = new GuestUser
                 {
-                    // Update the existing record instead of creating new
-                    existingInactive.Name = request.GuestName;
-                    existingInactive.Email = request.GuestEmail;
-                    existingInactive.Phone = request.GuestPhone;
-                    existingInactive.IpAddress = request.IpAddress;
-                    existingInactive.UserAgent = request.UserAgent;
-                    existingInactive.LastActivityAt = DateTime.UtcNow;
-                    existingInactive.IsActive = true;
-                    guestUser = existingInactive;
-                }
-                else
-                {
-                    // Create new guest user only if no existing record found
-                    guestUser = new GuestUser
-                    {
-                        SessionId = request.GuestSessionId,
-                        Name = request.GuestName,
-                        Email = request.GuestEmail,
-                        Phone = request.GuestPhone,
-                        IpAddress = request.IpAddress,
-                        UserAgent = request.UserAgent,
-                        LastActivityAt = DateTime.UtcNow,
-                        IsActive = true
-                    };
-                    _context.GuestUsers.Add(guestUser);
-                }
+                    SessionId = request.GuestSessionId ?? Guid.NewGuid().ToString(),
+                    Name = request.GuestName,
+                    Email = request.GuestEmail,
+                    Phone = request.GuestPhone,
+                    IpAddress = request.IpAddress,
+                    UserAgent = request.UserAgent,
+                    LastActivityAt = DateTime.UtcNow
+                };
+                _context.GuestUsers.Add(guestUser);
+                await _context.SaveChangesAsync(cancellationToken);
             }
             else
             {
-                // Update existing active guest info
                 guestUser.LastActivityAt = DateTime.UtcNow;
-                guestUser.IsActive = true;
-                if (!string.IsNullOrEmpty(request.GuestName))
-                    guestUser.Name = request.GuestName;
-                if (!string.IsNullOrEmpty(request.GuestEmail))
-                    guestUser.Email = request.GuestEmail;
-                if (!string.IsNullOrEmpty(request.GuestPhone))
-                    guestUser.Phone = request.GuestPhone;
-                guestUser.IpAddress = request.IpAddress;
-                guestUser.UserAgent = request.UserAgent;
             }
         }
+
         // 2. پیدا کردن بهترین Agent
         var assignedAgent = await _agentAssignment.GetBestAvailableAgentAsync(cancellationToken);
 
@@ -113,7 +79,7 @@ public class StartSupportChatCommandHandler : IRequestHandler<StartSupportChatCo
                 : $"Support Chat - {request.GuestName ?? "Guest"}",
             Description = "Live support chat",
             IsGroup = false,
-            ChatRoomType = ChatRoomType.Support,
+            ChatRoomType = ChatRoomType.Support, // تنظیم نوع به پشتیبانی
             CreatedById = request.UserId ?? assignedAgent?.Id,
             GuestIdentifier = guestUser?.SessionId
         };
@@ -159,6 +125,7 @@ public class StartSupportChatCommandHandler : IRequestHandler<StartSupportChatCo
             SenderId = request.UserId,
             ChatRoomId = chatRoom.Id,
             Type = MessageType.Text
+            //SenderFullName = request.UserId != null ? "کاربر" : (request.GuestName ?? "مهمان")
         };
         _context.ChatMessages.Add(initialMessage);
 
@@ -177,4 +144,5 @@ public class StartSupportChatCommandHandler : IRequestHandler<StartSupportChatCo
             assignedAgent != null ? $"{assignedAgent.FirstName} {assignedAgent.LastName}" : null
         );
     }
+
 }

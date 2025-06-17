@@ -1,39 +1,57 @@
-// FrontEnd/src/hooks/useMobileNavigation.js
-import {useEffect} from 'react';
+// فایل: FrontEnd/src/hooks/useMobileNavigation.js
+// محتوای کامل فایل را با این کد جایگزین کنید:
+
+import {useEffect, useRef} from 'react';
 import {useNavigate, useLocation} from 'react-router-dom';
 
 export const useMobileNavigation = (onBackPress) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const isHandlingRef = useRef(false);
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
-    // Handle Android back button
-    const handlePopState = (event) => {
-      if (window.innerWidth <= 768) {
-        // Mobile only
-        event.preventDefault();
+    // Only handle on mobile
+    if (window.innerWidth > 768) return;
 
-        // If custom handler provided, use it
+    const handlePopState = (event) => {
+      // Prevent multiple rapid calls
+      if (isHandlingRef.current) return;
+
+      isHandlingRef.current = true;
+
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      // Reset the handling flag after a short delay
+      timeoutRef.current = setTimeout(() => {
+        isHandlingRef.current = false;
+      }, 300);
+
+      try {
         if (onBackPress) {
           onBackPress();
         } else {
-          // Default behavior - go to chat list
+          // Default behavior
           if (location.pathname.includes('/chat/')) {
-            navigate('/chats');
-          } else {
-            navigate(-1);
+            navigate('/chats', {replace: true});
           }
         }
+      } catch (error) {
+        console.warn('Navigation error:', error);
       }
     };
 
-    // Push a new state when component mounts
-    window.history.pushState({page: 'chat'}, '');
-
+    // Add event listener
     window.addEventListener('popstate', handlePopState);
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
-  }, [navigate, location, onBackPress]);
+  }, [navigate, location.pathname, onBackPress]);
 };

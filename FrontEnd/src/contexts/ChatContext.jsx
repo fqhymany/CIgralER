@@ -258,8 +258,11 @@ function chatReducer(state, action) {
     }
 
     case ActionTypes.DELETE_MESSAGE_SUCCESS: {
-      const {messageId, roomId} = action.payload; // Payload from SignalR or API response
+      const {messageId, roomId} = action.payload;
       if (!state.messages[roomId]) return state;
+
+      // Real-time update without refresh
+      const updatedMessages = state.messages[roomId].items.map((msg) => (msg.id === messageId ? {...msg, content: '[پیام حذف شد]', isDeleted: true, attachmentUrl: null} : msg));
 
       return {
         ...state,
@@ -267,15 +270,21 @@ function chatReducer(state, action) {
           ...state.messages,
           [roomId]: {
             ...state.messages[roomId],
-            // Option 1: Replace message content (soft delete visible)
-            items: state.messages[roomId].items.map((msg) => (msg.id === messageId ? {...msg, content: '[پیام حذف شد]', isDeleted: true, attachmentUrl: null /* if applicable */} : msg)),
-            // Option 2: Filter out the message (hard delete from view)
-            // items: state.messages[roomId].items.filter(msg => msg.id !== messageId),
+            items: updatedMessages,
           },
         },
       };
     }
 
+    // real-time unread count:
+    case ActionTypes.UPDATE_UNREAD_COUNT: {
+      const {roomId, unreadCount} = action.payload;
+
+      return {
+        ...state,
+        rooms: state.rooms.map((room) => (room.id === roomId ? {...room, unreadCount} : room)),
+      };
+    }
     case ActionTypes.SET_REPLYING_TO_MESSAGE:
       return {...state, replyingToMessage: action.payload};
     case ActionTypes.CLEAR_REPLYING_TO_MESSAGE:
@@ -490,6 +499,24 @@ export const ChatProvider = ({children}) => {
     },
     [state.messages, state.currentLoggedInUserId]
   );
+  const loadRooms = useCallback(async () => {
+    // Only start loading if we're not already loading and don't have rooms
+    if (state.isLoading || (state.rooms.length > 0 && !state.error)) return;
+
+    dispatch({type: ActionTypes.SET_LOADING, payload: true});
+
+    try {
+      const rooms = await chatApi.getChatRooms();
+      if (rooms) {
+        dispatch({type: ActionTypes.SET_ROOMS, payload: rooms});
+      }
+    } catch (error) {
+      console.error('Error loading rooms:', error);
+      dispatch({type: ActionTypes.SET_ERROR, payload: 'خطا در بارگذاری چت‌ها'});
+    } finally {
+      dispatch({type: ActionTypes.SET_LOADING, payload: false});
+    }
+  }, [state.isLoading, state.rooms.length, state.error]);
 
   const loadChatRooms = useCallback(async () => {
     try {
@@ -505,42 +532,33 @@ export const ChatProvider = ({children}) => {
     }
   }, []);
 
-  const loadMessages = useCallback(async (roomId, page = 1, pageSize = 20, loadOlder = false) => {
-    if (!roomId) return;
-    try {
+  const loadMessages = useCallback(
+    async (roomId, page = 1, pageSize = 20, isLoadingMore = false) => {
+      if (state.isLoadingMessages && !isLoadingMore) return;
+
       dispatch({type: ActionTypes.SET_LOADING_MESSAGES, payload: true});
-      // API باید PaginatedResult<ChatMessageDto> را برگرداند
-      const result = await chatApi.getChatMessages(roomId, page, pageSize);
-      // result باید شامل items, totalPages, currentPage, hasNextPage (برای پیام‌های قدیمی‌تر hasPreviousPage) باشد
-      // فرض می‌کنیم result.items آرایه پیام‌هاست و result.hasMore نشان‌دهنده وجود صفحات قدیمی‌تر است
-      const messages = result.items || result; // تطبیق با ساختار فعلی یا جدید
-      const hasMore = result.pageNumber ? result.pageNumber < result.totalPages : false; // اگر صفحه‌بندی کامل باشد
 
-      if (loadOlder) {
-        dispatch({type: ActionTypes.PREPEND_MESSAGES, payload: {roomId, messages, hasMore, currentPage: page}});
-      } else {
-        dispatch({type: ActionTypes.SET_MESSAGES, payload: {roomId, messages, hasMore, currentPage: page}});
-      }
-    } catch (error) {
-      dispatch({type: ActionTypes.SET_ERROR, payload: error.message});
-    } finally {
-      dispatch({type: ActionTypes.SET_LOADING_MESSAGES, payload: false});
-    }
-  }, []);
+      try {
+        const response = await chatApi.getChatMessages(roomId, page, pageSize);
 
-  const setCurrentRoom = useCallback(
-    (room) => {
-      dispatch({type: ActionTypes.SET_CURRENT_ROOM, payload: room});
-      if (room && signalRService.getConnectionStatus()) {
-        signalRService.joinRoom(room.id.toString());
-        if (room.unreadCount > 0) {
-          // اگر پیام خوانده نشده وجود دارد
-          markAllMessagesAsReadInRoom(room.id);
+        if (isLoadingMore) {
+          dispatch({type: ActionTypes.PREPEND_MESSAGES, payload: {roomId, messages: response}});
+        } else {
+          dispatch({type: ActionTypes.SET_MESSAGES, payload: {roomId, messages: response}});
         }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+        dispatch({type: ActionTypes.SET_ERROR, payload: 'خطا در بارگذاری پیام‌ها'});
+      } finally {
+        dispatch({type: ActionTypes.SET_LOADING_MESSAGES, payload: false});
       }
     },
-    [markAllMessagesAsReadInRoom]
+    [state.isLoadingMessages]
   );
+
+  const setCurrentRoom = useCallback((room) => {
+    dispatch({type: ActionTypes.SET_CURRENT_ROOM, payload: room});
+  }, []);
 
   const createChatRoom = useCallback(async (roomData) => {
     // roomData: CreateChatRoomRequest
@@ -558,25 +576,36 @@ export const ChatProvider = ({children}) => {
     }
   }, []);
 
-  const sendMessage = useCallback(
-    async (roomId, content, type = MessageType.Text, attachmentUrl = null, fileInfo = null, replyToMessageId = null) => {
-      try {
-        const messageData = {
-          content,
-          type,
-          attachmentUrl,
-          ...(fileInfo && {fileName: fileInfo.fileName, fileSize: fileInfo.fileSize}),
-          replyToMessageId, // Add replyToMessageId here
-        };
-        const sentMessage = await chatApi.sendMessage(roomId, messageData);
-        return sentMessage;
-      } catch (error) {
-        dispatch({type: ActionTypes.SET_ERROR, payload: error.message});
-        throw error;
+  const joinRoom = useCallback(async (roomId) => {
+    try {
+      if (signalRService.getConnectionStatus()) {
+        await signalRService.joinRoom(roomId);
       }
-    },
-    [dispatch]
-  );
+    } catch (error) {
+      console.error('Error joining room:', error);
+    }
+  }, []);
+
+  const leaveRoom = useCallback(async (roomId) => {
+    try {
+      if (signalRService.getConnectionStatus()) {
+        await signalRService.leaveRoom(roomId);
+      }
+    } catch (error) {
+      console.error('Error leaving room:', error);
+    }
+  }, []);
+
+  const sendMessage = useCallback(async (roomId, messageData) => {
+    try {
+      const response = await chatApi.sendMessage(roomId, messageData);
+      // پیام از طریق SignalR دریافت خواهد شد
+      return response;
+    } catch (error) {
+      console.error('Error sending message:', error);
+      throw error;
+    }
+  }, []);
 
   const markMessageAsRead = useCallback((roomId, messageId) => {
     if (signalRService.getConnectionStatus() && roomId && messageId) {
@@ -599,6 +628,7 @@ export const ChatProvider = ({children}) => {
     },
     [dispatch]
   );
+
   const deleteMessage = useCallback(
     async (messageId) => {
       try {
@@ -665,26 +695,45 @@ export const ChatProvider = ({children}) => {
   );
 
   const value = {
+    // State values
     ...state,
-    loadChatRooms,
+    currentRoom: state.currentRoom,
+    rooms: state.rooms,
+    messages: state.messages,
+    onlineUsers: state.onlineUsers,
+    typingUsers: state.typingUsers,
+    isConnected: state.isConnected,
+    isLoading: state.isLoading,
+    isLoadingMessages: state.isLoadingMessages,
+    error: state.error,
+    currentLoggedInUserId: state.currentLoggedInUserId,
+    replyingToMessage: state.replyingToMessage,
+    isForwardModalVisible: state.isForwardModalVisible,
+    messageIdToForward: state.messageIdToForward,
+
+    // Actions
+    loadRooms, // اگر loadRooms نیاز است
+    loadChatRooms, // اگر loadChatRooms نیاز است
     loadMessages,
-    sendMessage,
-    setReplyingToMessage,
-    clearReplyingToMessage,
-    createChatRoom,
     setCurrentRoom,
-    sendReaction,
-    markAllMessagesAsReadInRoom,
+    sendMessage,
+    joinRoom,
+    leaveRoom,
     editMessage,
     deleteMessage,
+    markAllMessagesAsReadInRoom,
+    setReplyingToMessage,
+    clearReplyingToMessage,
+    sendReaction,
     showForwardModal,
     hideForwardModal,
     forwardMessage,
-    isForwardModalVisible: state.isForwardModalVisible,
-    messageIdToForward: state.messageIdToForward,
+    // Typing actions
     startTyping: (roomId) => signalRService.startTyping(roomId.toString()),
     stopTyping: (roomId) => signalRService.stopTyping(roomId ? roomId.toString() : null),
+    // Mark message as read
     markMessageAsRead,
+    // Online users
     loadOnlineUsers: useCallback(async () => {
       try {
         const users = await chatApi.getOnlineUsers();
@@ -693,8 +742,8 @@ export const ChatProvider = ({children}) => {
         dispatch({type: ActionTypes.SET_ERROR, payload: error.message});
       }
     }, []),
+    // Error handling
     clearError: () => dispatch({type: ActionTypes.SET_ERROR, payload: null}),
-    replyingToMessage: state.replyingToMessage,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

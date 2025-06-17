@@ -1,10 +1,13 @@
-﻿using System.Security.Claims;
+﻿using System.Linq;
+using System.Security.Claims;
 using LawyerProject.Application.Chats.Commands;
+using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Chats.Queries;
 using LawyerProject.Application.Common.Interfaces;
 using LawyerProject.Domain.Entities;
 using LawyerProject.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace LawyerProject.Web.Endpoints;
@@ -22,7 +25,7 @@ public class Chat : EndpointGroupBase
         chatApi.MapPost("/rooms/{roomId:int}/join", JoinChatRoom);
         chatApi.MapDelete("/rooms/{roomId:int}/leave", LeaveChatRoom);
         chatApi.MapGet("/rooms/{roomId:int}/members", GetChatRoomMembers);
-
+        chatApi.MapGet("/rooms/{roomId}/unread-count", GetUnreadCount);
         // Message endpoints
         chatApi.MapPost("/rooms/{roomId:int}/messages", SendMessage);
         chatApi.MapPut("/messages/{messageId:int}", EditMessage).WithName("EditChatMessage");
@@ -35,11 +38,75 @@ public class Chat : EndpointGroupBase
         chatApi.MapGet("/users/search", SearchUsers);
     }
 
-    private static async Task<IResult> GetChatRooms(IMediator mediator)
+    private static async Task<IResult> GetUnreadCount(
+        int roomId,
+        IApplicationDbContext context,
+        IUser user)
     {
-        var query = new GetChatRoomsQuery();
-        var result = await mediator.Send(query);
-        return Results.Ok(result);
+        var userId = user.Id;
+
+        var lastReadMessage = await context.ChatRoomMembers
+            .Where(m => m.UserId == userId && m.ChatRoomId == roomId)
+            .Select(m => m.LastReadMessageId)
+            .FirstOrDefaultAsync();
+
+        var unreadCount = await context.ChatMessages
+            .Where(m => m.ChatRoomId == roomId &&
+                        m.SenderId != userId &&
+                        !m.IsDeleted &&
+                        (lastReadMessage == null || m.Id > lastReadMessage))
+            .CountAsync();
+
+        return Results.Ok(new { UnreadCount = unreadCount });
+    }
+
+    private static async Task<IResult> GetChatRooms(
+    IApplicationDbContext context,
+    IUser user,
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 20)
+    {
+        var userId = user.Id;
+
+        var query = from room in context.ChatRooms
+                    join member in context.ChatRoomMembers on room.Id equals member.ChatRoomId
+                    where member.UserId == userId
+                    select new
+                    {
+                        Room = room,
+                        Member = member,
+                        LastMessage = context.ChatMessages
+                            .Where(m => m.ChatRoomId == room.Id && !m.IsDeleted)
+                            .OrderByDescending(m => m.Created)
+                            .FirstOrDefault(),
+                        UnreadCount = context.ChatMessages
+                            .Count(m => m.ChatRoomId == room.Id &&
+                                        m.SenderId != userId &&
+                                        !m.IsDeleted &&
+                                        (member.LastReadMessageId == null || m.Id > member.LastReadMessageId))
+                    };
+
+        var rooms = await query
+            .OrderByDescending(x => x.LastMessage != null ? x.LastMessage.Created : x.Room.Created)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new ChatRoomDto(
+                x.Room.Id,
+                x.Room.Name,
+                x.Room.Description,
+                x.Room.IsGroup,
+                x.Room.Avatar,
+                x.Room.Created,
+                x.Room.ChatRoomType, // اضافه کردن ChatRoomType
+                context.ChatMessages.Count(m => m.ChatRoomId == x.Room.Id),
+                x.LastMessage != null ? x.LastMessage.Content : null,
+                x.LastMessage != null ? x.LastMessage.Created : null,
+                (x.LastMessage != null ? x.LastMessage.SenderId : null)!,
+                x.UnreadCount
+            ))
+            .ToListAsync();
+
+        return Results.Ok(rooms);
     }
 
     private static async Task<IResult> GetChatMessages(

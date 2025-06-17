@@ -1,29 +1,28 @@
-// src/components/Chat/MessageInput.jsx
-// Message input component
-
 import React, {useState, useRef, useEffect} from 'react';
-import {Form, Button, Dropdown, ProgressBar, Alert} from 'react-bootstrap';
+import {Form, Button, OverlayTrigger, Popover} from 'react-bootstrap';
 import {useChat} from '../../hooks/useChat';
 import {MessageType} from '../../types/chat';
 import {IoSend} from 'react-icons/io5';
-import secureFileApi from '../../api/secureFileApi';
+import {BsEmojiSmile, BsPaperclip, BsMic, BsMicFill} from 'react-icons/bs';
 import EmojiPicker, {EmojiStyle} from 'emoji-picker-react';
-import {BsEmojiSmile} from 'react-icons/bs';
 import './Chat.css';
 
 const MessageInput = ({roomId}) => {
   const [message, setMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [attachments, setAttachments] = useState([]);
-  const [uploading, setUploading] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [error, setError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
-  const {sendMessage, startTyping, stopTyping, replyingToMessage, clearReplyingToMessage,currentLoggedInUserId} = useChat();
+  const {sendMessage, startTyping, stopTyping, replyingToMessage, clearReplyingToMessage} = useChat();
+
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingIntervalRef = useRef(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -40,35 +39,30 @@ const MessageInput = ({roomId}) => {
       startTyping(roomId);
     }
 
-    // Clear existing timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    // Set new timeout
     typingTimeoutRef.current = setTimeout(() => {
       setIsTyping(false);
       stopTyping(roomId);
     }, 1000);
   };
 
-  // Cleanup typing timeout
+  // Cleanup
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
+      }
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
       }
       if (isTyping) {
         stopTyping(roomId);
       }
     };
   }, [roomId, isTyping, stopTyping]);
-
-  const onEmojiClick = (emojiObject, event) => {
-    setMessage((prevMessage) => prevMessage + emojiObject.emoji);
-    setShowEmojiPicker(false); // Optionally close picker after selection
-    textareaRef.current?.focus();
-  };
 
   const handleInputChange = (e) => {
     setMessage(e.target.value);
@@ -83,259 +77,282 @@ const MessageInput = ({roomId}) => {
   };
 
   const handleSendMessage = async () => {
-    if (!message.trim() && attachments.length === 0) return;
-    setError('');
+    if (!message.trim()) return;
+
+    const messageContent = message.trim();
+    setMessage('');
+
     try {
-      let messageType = MessageType.Text;
-      let attachmentData = null;
+      await sendMessage(roomId, {
+        content: messageContent,
+        type: MessageType.Text,
+        replyToMessageId: replyingToMessage?.id,
+      });
 
-      // Handle file attachment
-      if (attachments.length > 0) {
-        const attachment = attachments[0];
-        const uploadResult = await uploadFile(attachment);
-        attachmentData = {
-          url: uploadResult.url,
-          fileName: uploadResult.fileName,
-          fileSize: uploadResult.fileSize,
-        };
-
-        if (attachment.type.startsWith('image/')) {
-          messageType = MessageType.Image;
-        } else if (attachment.type.startsWith('video/')) {
-          messageType = MessageType.Video;
-        } else if (attachment.type.startsWith('audio/')) {
-          messageType = MessageType.Audio;
-        } else {
-          messageType = MessageType.File;
-        }
+      if (replyingToMessage) {
+        clearReplyingToMessage();
       }
-
-      await sendMessage(
-        roomId,
-        message.trim(),
-        messageType,
-        attachmentData?.url,
-        attachmentData ? {fileName: attachmentData.fileName, fileSize: attachmentData.fileSize} : null,
-        replyingToMessage ? replyingToMessage.id : null // Pass replyToMessageId
-      );
-      setMessage('');
-      setAttachments([]);
-      setIsTyping(false);
-      if (clearReplyingToMessage) clearReplyingToMessage(); // Clear reply state
     } catch (error) {
-      setError('خطا در ارسال پیام: ' + error.message);
+      console.error('Error sending message:', error);
+      setMessage(messageContent); // Restore message on error
     }
   };
 
-  const renderReplyingToPreview = () => {
-    if (!replyingToMessage) return null;
-
-    let displayContent = replyingToMessage.content;
-    if (replyingToMessage.type === MessageType.Image) {
-      displayContent = 'تصویر';
-    } else if (replyingToMessage.type === MessageType.File) {
-      displayContent = `فایل: ${replyingToMessage.fileName || 'فایل ضمیمه'}`;
-    } // Add for other types like Video, Audio
-
-    const isReplyingToSelf = replyingToMessage.senderId === currentLoggedInUserId;
-    const displayName = isReplyingToSelf ? 'شما' : replyingToMessage.senderFullName;
-
-    return (
-      <div className="replying-to-preview alert alert-info p-2 mb-2">
-        <div className="d-flex justify-content-between align-items-center">
-          <div>
-            <small className="fw-bold d-block">پاسخ به: {displayName}</small>
-            <small className="text-muted text-truncate d-block">{displayContent}</small>
-          </div>
-          <Button variant="link" size="sm" className="text-danger p-0" onClick={clearReplyingToMessage}>
-            <i className="bi bi-x-lg"></i>
-          </Button>
-        </div>
-      </div>
-    );
+  const onEmojiClick = (emojiObject) => {
+    setMessage((prev) => prev + emojiObject.emoji);
+    setShowEmojiPicker(false);
+    textareaRef.current?.focus();
   };
 
-  const uploadFile = async (file) => {
-    setUploading(true);
+  // File upload handler
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
     setUploadProgress(0);
 
     try {
-      // استفاده از secureFileApi برای آپلود فایل
-      const result = await secureFileApi.uploadFile(file, roomId, 'chat');
+      const formData = new FormData();
+      formData.append('file', file);
 
-      // شبیه‌سازی پیشرفت آپلود
-      for (let i = 0; i <= 100; i += 10) {
-        setUploadProgress(i);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      // Determine file type
+      let fileType = MessageType.File;
+      if (file.type.startsWith('image/')) fileType = MessageType.Image;
+      else if (file.type.startsWith('audio/')) fileType = MessageType.Audio;
+      else if (file.type.startsWith('video/')) fileType = MessageType.Video;
 
-      return {
-        url: result.url,
-        fileName: file.name,
-        fileSize: file.size,
+      formData.append('type', fileType.toString());
+
+      // Upload file with progress
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const progress = (e.loaded / e.total) * 100;
+          setUploadProgress(progress);
+        }
       };
+
+      xhr.onload = async () => {
+        if (xhr.status === 200) {
+          const result = JSON.parse(xhr.responseText);
+
+          // Send message with attachment
+          await sendMessage(roomId, {
+            content: file.name,
+            type: fileType,
+            attachmentUrl: result.fileUrl,
+          });
+
+          setIsUploading(false);
+          setUploadProgress(0);
+
+          // Reset file input
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        } else {
+          throw new Error('Upload failed');
+        }
+      };
+
+      xhr.onerror = () => {
+        throw new Error('Upload failed');
+      };
+
+      xhr.open('POST', '/api/chat/upload');
+      xhr.setRequestHeader('Authorization', `Bearer ${localStorage.getItem('token')}`);
+      xhr.send(formData);
     } catch (error) {
-      setError('خطا در آپلود فایل: ' + (error.message || 'خطای ناشناخته'));
-      throw error;
-    } finally {
-      setUploading(false);
+      console.error('Upload error:', error);
+      setIsUploading(false);
       setUploadProgress(0);
+      alert('خطا در آپلود فایل. لطفاً دوباره تلاش کنید.');
     }
   };
 
-  const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      setAttachments(files.slice(0, 1)); // Only allow one file at a time
+  // Voice recording handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      const mediaRecorder = new MediaRecorder(stream);
+
+      mediaRecorderRef.current = mediaRecorder;
+      const audioChunks = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, {type: 'audio/webm'});
+        await uploadVoiceMessage(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      console.error('Recording error:', error);
+      alert('خطا در دسترسی به میکروفون');
     }
   };
 
-  const removeAttachment = (index) => {
-    setAttachments(attachments.filter((_, i) => i !== index));
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    }
   };
 
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const uploadVoiceMessage = async (audioBlob) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'voice-message.webm');
+      formData.append('type', MessageType.Audio.toString());
+
+      const response = await fetch('/api/chat/upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Upload failed');
+
+      const result = await response.json();
+
+      await sendMessage(roomId, {
+        content: 'پیام صوتی',
+        type: MessageType.Audio,
+        attachmentUrl: result.fileUrl,
+      });
+    } catch (error) {
+      console.error('Voice upload error:', error);
+      alert('خطا در ارسال پیام صوتی');
+    }
   };
 
-  const getFileIcon = (fileType) => {
-    if (fileType.startsWith('image/')) return 'bi-image';
-    if (fileType.startsWith('video/')) return 'bi-camera-video';
-    if (fileType.startsWith('audio/')) return 'bi-music-note';
-    if (fileType.includes('pdf')) return 'bi-file-pdf';
-    if (fileType.includes('word')) return 'bi-file-word';
-    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return 'bi-file-excel';
-    return 'bi-file-earmark';
+  const formatRecordingTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // Emoji picker popover
+  const emojiPickerPopover = (
+    <Popover id="emoji-picker-popover" style={{maxWidth: 'none'}}>
+      <Popover.Body className="p-0">
+        <EmojiPicker onEmojiClick={onEmojiClick} emojiStyle={EmojiStyle.NATIVE} />
+      </Popover.Body>
+    </Popover>
+  );
 
   return (
-    <div className="border-top p-3 position-relative">
-      {/* Error Alert */}
-      {error && (
-        <Alert variant="danger" dismissible onClose={() => setError('')} className="mb-2">
-          {error}
-        </Alert>
-      )}
-      {/* Upload Progress */}
-      {uploading && (
-        <div className="mb-2">
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <small className="text-muted">در حال آپلود...</small>
-            <small className="text-muted">{uploadProgress}%</small>
+    <div className="chat-input-container">
+      {/* Reply indicator */}
+      {replyingToMessage && (
+        <div className="reply-indicator bg-light p-2 border-top d-flex justify-content-between align-items-center">
+          <div>
+            <small className="text-muted">پاسخ به:</small>
+            <div className="fw-bold">{replyingToMessage.senderFullName}</div>
+            <div className="text-truncate">{replyingToMessage.content}</div>
           </div>
-          <ProgressBar now={uploadProgress} size="sm" />
-        </div>
-      )}
-      {/* Attachments Preview */}
-      {attachments.length > 0 && (
-        <div className="mb-2">
-          {attachments.map((file, index) => (
-            <div key={index} className="d-flex align-items-center bg-light rounded p-2">
-              <i className={`bi ${getFileIcon(file.type)} me-2`}></i>
-              <div className="flex-grow-1 min-width-0">
-                <div className="text-truncate small">{file.name}</div>
-                <div className="text-muted" style={{fontSize: '0.75rem'}}>
-                  {formatFileSize(file.size)}
-                </div>
-              </div>
-              <Button variant="link" size="sm" className="text-danger p-0 ms-2" onClick={() => removeAttachment(index)}>
-                <i className="bi bi-x-lg"></i>
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-      {renderReplyingToPreview()}
-
-      {showEmojiPicker && (
-        <div style={{position: 'absolute', bottom: '60px', right: '10px', zIndex: 1000,direction:'ltr'}}>
-          {' '}
-          {/* Adjust positioning as needed */}
-          <EmojiPicker
-            onEmojiClick={onEmojiClick}
-            autoFocusSearch={false}
-            emojiStyle={EmojiStyle.NATIVE}
-            height={350}
-            width="100%"
-          />
+          <Button variant="link" size="sm" onClick={clearReplyingToMessage} className="p-1">
+            <i className="bi bi-x"></i>
+          </Button>
         </div>
       )}
 
-      {/* Message Input */}
-      <div className="d-flex flex-row-reverse align-items-end gap-2">
-        {/* Emoji Button */}
-        <Button variant="link-secondary" size="sm" className="rounded-circle" style={{width: '40px', height: '40px'}} onClick={() => setShowEmojiPicker(!showEmojiPicker)} title="افزودن اموجی">
-          <BsEmojiSmile size={20} />
-        </Button>
-        {/* Attachment Dropdown */}
-        {/* <Dropdown>
-          <Dropdown.Toggle variant="outline-secondary" size="sm" className="rounded-circle" style={{width: '40px', height: '40px'}}>
-            <i className="bi bi-paperclip"></i>
-          </Dropdown.Toggle>
+      {/* Upload progress */}
+      {isUploading && (
+        <div className="upload-progress-container p-2 bg-light">
+          <div className="d-flex justify-content-between align-items-center mb-1">
+            <small>در حال آپلود...</small>
+            <small>{Math.round(uploadProgress)}%</small>
+          </div>
+          <div className="progress" style={{height: '4px'}}>
+            <div className="progress-bar" role="progressbar" style={{width: `${uploadProgress}%`}}></div>
+          </div>
+        </div>
+      )}
 
-          <Dropdown.Menu>
-            <Dropdown.Item onClick={() => fileInputRef.current?.click()}>
-              <i className="bi bi-image me-2"></i>
-              تصویر
-            </Dropdown.Item>
-            <Dropdown.Item onClick={() => fileInputRef.current?.click()}>
-              <i className="bi bi-camera-video me-2"></i>
-              ویدیو
-            </Dropdown.Item>
-            <Dropdown.Item onClick={() => fileInputRef.current?.click()}>
-              <i className="bi bi-music-note me-2"></i>
-              صوت
-            </Dropdown.Item>
-            <Dropdown.Item onClick={() => fileInputRef.current?.click()}>
-              <i className="bi bi-file-earmark me-2"></i>
-              فایل
-            </Dropdown.Item>
-          </Dropdown.Menu>
-        </Dropdown> */}
+      {/* Recording indicator */}
+      {isRecording && (
+        <div className="recording-indicator bg-danger text-white p-2 d-flex justify-content-between align-items-center">
+          <div className="d-flex align-items-center">
+            <BsMicFill className="me-2 recording-pulse" />
+            <span>در حال ضبط...</span>
+          </div>
+          <span>{formatRecordingTime(recordingTime)}</span>
+        </div>
+      )}
 
-        {/* Hidden File Input */}
-        <input ref={fileInputRef} type="file" className="d-none" onChange={handleFileSelect} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" />
+      {/* Input area */}
+      <div className="chat-input-wrapper">
+        {/* File upload, voice, and send buttons */}
+        <div className="attachment-buttons">
+          {/* اگر پیام وجود دارد فقط دکمه ارسال */}
+          {message.trim() ? (
+            <Button variant="primary" size="sm" className="chat-send-button" onClick={handleSendMessage} disabled={isUploading || isRecording}>
+              <IoSend size={20} />
+            </Button>
+          ) : (
+            // اگر پیام خالی است، دکمه‌های فایل و ضبط صدا
+            <>
+              <input ref={fileInputRef} type="file" className="d-none" onChange={handleFileSelect} accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar" disabled={isUploading || isRecording} />
+              <button className="attachment-button" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isRecording} title="ضمیمه فایل">
+                <BsPaperclip size={20} />
+              </button>
+              <button className={`attachment-button ${isRecording ? 'recording-indicator' : ''}`} onClick={isRecording ? stopRecording : startRecording} disabled={isUploading} title={isRecording ? 'توقف ضبط' : 'ضبط صدا'}>
+                {isRecording ? <BsMicFill size={20} color="#dc3545" /> : <BsMic size={20} />}
+              </button>
+            </>
+          )}
+        </div>
 
-        {/* Text Input */}
+        {/* Text input */}
         <div className="flex-grow-1">
           <Form.Control
             ref={textareaRef}
             as="textarea"
             rows="1"
-            placeholder="پیام"
+            placeholder={isRecording ? 'در حال ضبط...' : 'پیام'}
             value={message}
             onChange={handleInputChange}
-            onKeyPress={handleKeyPress}
-            disabled={uploading}
+            onKeyDown={handleKeyPress}
+            disabled={isUploading || isRecording}
             style={{
               resize: 'none',
               minHeight: '40px',
               maxHeight: '120px',
-              border: 'none !important',
-              boxShadow: 'none !important',
-              outline: 'none !important',
-              background: 'transparent !important',
-              caretColor: '#222 !important', // رنگ نشانگر تایپ
+              border: 'none',
+              boxShadow: 'none',
+              outline: 'none',
+              background: 'transparent',
             }}
-            className="no-focus-border"
+            className="chat-input"
           />
         </div>
 
-        {/* Send Button */}
-        <Button variant="primary" size="sm" className="rounded-circle" style={{width: '40px', height: '40px'}} onClick={handleSendMessage} disabled={(!message.trim() && attachments.length === 0) || uploading}>
-          <IoSend size={20} />
-        </Button>
+        {/* Emoji picker button */}
+        <OverlayTrigger trigger="click" placement="top" overlay={emojiPickerPopover} rootClose>
+          <button className="attachment-button" disabled={isUploading || isRecording} title="افزودن ایموجی">
+            <BsEmojiSmile size={20} />
+          </button>
+        </OverlayTrigger>
       </div>
-      {/* Input Helper Text */}
-      {/* <div className="mt-1">
-        <small className="text-muted">
-          Enter برای ارسال، Shift+Enter برای خط جدید
-        </small>
-      </div> */}
     </div>
   );
 };

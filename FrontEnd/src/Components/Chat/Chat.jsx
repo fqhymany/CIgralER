@@ -1,230 +1,209 @@
-import React, {useEffect, useState, useCallback} from 'react'; // useCallback اضافه شد
-import {Container, Row, Col, Card, Alert} from 'react-bootstrap'; // Alert برای نمایش خطا
-import {useNavigate} from 'react-router-dom'; // Add this import for useNavigate
+// FrontEnd/src/Components/Chat/Chat.jsx
+// Complete Chat component with all fixes applied
+
+import React, {useState, useEffect, useCallback} from 'react';
+import {useParams, useNavigate, useLocation} from 'react-router-dom';
+import {Container, Row, Col, Card, Button, Alert, Spinner} from 'react-bootstrap';
 import {useChat} from '../../hooks/useChat';
-import ChatRoomList from './ChatRoomList.jsx';
-import MessageList from './MessageList.jsx';
-import MessageInput from './MessageInput.jsx';
-import NewRoomModal from './NewRoomModal.jsx';
-import ConnectionStatus from './ConnectionStatus'; // برای نمایش وضعیت اتصال
-import OnlineUsers from './OnlineUsers'; // برای نمایش کاربران آنلاین
-import ForwardMessageModal from './ForwardMessageModal';
-import TypingIndicatorComponent from './TypingIndicator';
-import useDevice from '../../customHooks/useDevice';
 import {useMobileNavigation} from '../../hooks/useMobileNavigation';
+import ChatRoomList from './ChatRoomList';
+import MessageList from './MessageList';
+import MessageInput from './MessageInput';
+import TypingIndicatorComponent from './TypingIndicatorComponent';
+import ConnectionStatus from './ConnectionStatus';
+import ForwardModal from './ForwardModal';
 import './Chat.css';
 
-const Chat = ({forceRoomId}) => {
+const Chat = () => {
+  const {roomId} = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const {
-    currentRoom,
     rooms,
+    currentRoom,
     messages,
     typingUsers,
-    currentLoggedInUserId,
+    isConnected,
     isLoading,
     error,
-    isConnected,
-    onlineUsers,
-    loadChatRooms,
-    loadMessages,
-    setCurrentRoom,
-    loadOnlineUsers,
-    clearError,
+    currentLoggedInUserId,
     isForwardModalVisible,
     hideForwardModal,
-    messageIdToForward,
+    setCurrentRoom,
+    loadMessages,
+    loadRooms,
+    joinRoom,
+    leaveRoom,
+    markAllMessagesAsReadInRoom,
   } = useChat();
+
   const [showNewRoomModal, setShowNewRoomModal] = useState(false);
-  const {isMobile} = useDevice();
-  const [mobileView, setMobileView] = useState('list'); // 'list' | 'chat'
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  // Check if current room is a group chat
   const isCurrentRoomGroupChat = currentRoom?.isGroup || false;
-  const navigate = useNavigate();
 
-  // Load initial data on mount
-  useEffect(() => {
-    loadChatRooms();
-    loadOnlineUsers();
-  }, [loadChatRooms, loadOnlineUsers]); // این توابع باید با useCallback در کانتکست تعریف شده باشند
+  // Check if this is a support chat
+  const isSupportChat = currentRoom?.chatRoomType === 2;
 
-  // Handle forced room when rooms are loaded or forceRoomId changes
-  useEffect(() => {
-    if (forceRoomId && rooms && rooms.length > 0) {
-      const forcedRoom = rooms.find((r) => r.id.toString() === forceRoomId.toString());
-      if (forcedRoom) {
-        // فقط اگر روم فعلی نیست یا هنوز رومی انتخاب نشده، آن را تنظیم کن
-        if (!currentRoom || currentRoom.id.toString() !== forceRoomId.toString()) {
-          setCurrentRoom(forcedRoom);
-        }
-      }
-    }
-  }, [forceRoomId, rooms, setCurrentRoom, currentRoom]);
+  // Extract support parameters from URL
+  const urlParams = new URLSearchParams(location.search);
+  const isFromSupport = urlParams.get('support') === 'true';
+  const ticketId = urlParams.get('ticketId');
 
-  // Load messages when current room changes
-  const handleLoadMessages = useCallback(
-    (roomId, page, pageSize, loadOlder = false) => {
-      if (roomId) {
-        loadMessages(roomId, page, pageSize, loadOlder);
-      }
-    },
-    [loadMessages]
-  );
-
-  useEffect(() => {
+  // Mobile navigation handler
+  const handleMobileBack = useCallback(() => {
     if (currentRoom) {
-      handleLoadMessages(currentRoom.id, 1, 20, false); // بارگذاری صفحه اول پیام‌ها
+      setCurrentRoom(null);
+      navigate('/chats', {replace: true});
     }
-  }, [currentRoom, handleLoadMessages]);
+  }, [currentRoom, navigate, setCurrentRoom]);
 
-  const handleRoomSelect = useCallback(
-    (room) => {
-      setCurrentRoom(room);
-    },
-    [setCurrentRoom]
-  );
-
-  const handleNewRoomCreated = useCallback(
-    (newRoom) => {
-      // setCurrentRoom(newRoom); // دیگر لازم نیست، سرور آپدیت می‌کند و لیست روم‌ها خودکار به‌روز می‌شود
-      setShowNewRoomModal(false);
-      // اگر می‌خواهید بلافاصله روم جدید انتخاب شود، می‌توانید این خط را نگه دارید
-      // اما بهتر است به آپدیت از سرور تکیه کنید و شاید کاربر بخواهد همان روم قبلی فعال بماند
-    },
-    [
-      /*setCurrentRoom*/
-    ]
-  );
-
-  // rooms قبلاً در کانتکست مرتب‌سازی شده است
-  // const roomsSorted = [...rooms].sort((a, b) => { ... }); // دیگر لازم نیست
-
-  // وقتی روم انتخاب شد در موبایل، فقط صفحه چت نمایش داده شود
-  useEffect(() => {
-    if (isMobile && currentRoom) setMobileView('chat');
-  }, [isMobile, currentRoom]);
-
-  // اگر کاربر در موبایل دکمه برگشت را زد
-  const handleBackToList = () => {
-    setCurrentRoom(null);
-    setMobileView('list');
-  };
-
-  const handleMobileBack = () => {
-    navigate('/chats');
-  };
-  
   useMobileNavigation(handleMobileBack);
 
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  // Load initial data
+  useEffect(() => {
+    if (!rooms.length && !error) {
+      loadRooms();
+    }
+  }, []); // Empty dependency array
+
+  // Handle room selection from URL
+  useEffect(() => {
+    if (roomId && rooms.length > 0) {
+      const room = rooms.find((r) => r.id === parseInt(roomId));
+      if (room && (!currentRoom || currentRoom.id !== room.id)) {
+        handleRoomSelect(room);
+      }
+    }
+  }, [roomId, rooms, currentRoom]);
+
+  // Room selection handler
+  const handleRoomSelect = async (room) => {
+    try {
+      // Leave current room if exists
+      if (currentRoom && currentRoom.id !== room.id) {
+        await leaveRoom(currentRoom.id);
+      }
+
+      // Set new current room
+      setCurrentRoom(room);
+
+      // Join new room
+      await joinRoom(room.id);
+
+      // Load messages for the room
+      await handleLoadMessages(room.id, 1, 20, false);
+
+      // Mark messages as read
+      markAllMessagesAsReadInRoom(room.id);
+
+      // Update URL
+      navigate(`/chat/${room.id}${isFromSupport ? `?support=true&ticketId=${ticketId}` : ''}`, {replace: true});
+    } catch (error) {
+      console.error('Error selecting room:', error);
+    }
+  };
+
+  // Load messages handler
+  const handleLoadMessages = async (roomId, page = 1, pageSize = 20, isLoadingMore = false) => {
+    try {
+      await loadMessages(roomId, page, pageSize, isLoadingMore);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    }
+  };
+
+  // Handle connection errors
+  if (error) {
+    return (
+      <Container fluid className="h-100 d-flex align-items-center justify-content-center">
+        <Alert variant="danger" className="text-center">
+          <h5>خطا در اتصال</h5>
+          <p>{error}</p>
+          <Button variant="outline-danger" onClick={() => window.location.reload()}>
+            تلاش مجدد
+          </Button>
+        </Alert>
+      </Container>
+    );
+  }
+
+  // Loading state
+  if (isLoading && rooms.length === 0 && !error) {
+    return (
+      <Container fluid className="h-100 d-flex align-items-center justify-content-center">
+        <div className="text-center">
+          <Spinner animation="border" variant="primary" />
+          <p className="mt-3">در حال بارگذاری...</p>
+        </div>
+      </Container>
+    );
+  }
+
   return (
-    <Container fluid className="h-100 p-0" style={{minHeight: 'calc(100vh - 56px)', overflow: 'hidden'}}>
-      {/* موبایل: فقط یکی از لیست یا چت */}
-      {isMobile ? (
-        mobileView === 'list' ? (
-          <Row className="h-100 flex-row-reverse gx-2 p-0">
-            <Col xs={12} className="h-100 d-flex flex-column">
-              <Card className="flex-grow-1 d-flex flex-column">
-                <Card.Header className="d-flex justify-content-between align-items-center py-2">
-                  <h5 className="mb-0 fs-6">چت‌ها</h5>
-                  <ConnectionStatus isConnected={isConnected} />
-                </Card.Header>
-                <Card.Body className="chat-list-container p-0 d-flex flex-column flex-grow-1">
-                  <ChatRoomList
-                    rooms={rooms}
-                    currentRoom={currentRoom}
-                    onRoomSelect={(room) => {
-                      setCurrentRoom(room);
-                      setMobileView('chat');
-                    }}
-                    onNewRoom={() => setShowNewRoomModal(true)}
-                    isLoading={isLoading && rooms.length === 0}
-                  />
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        ) : (
-          <Row className="h-100 flex-row-reverse gx-2 p-0">
-            <Col xs={12} className="h-100 d-flex flex-column">
-              <Card className="flex-grow-1 d-flex flex-column " style={{overflow: 'hidden'}}>
-                <Card.Header className="p-2 d-flex flex-row-reverse gap-3 align-items-center ">
-                  <button className="btn btn-link p-0 ms-2" onClick={handleBackToList}>
-                    <i className="bi bi-arrow-left fs-4"></i>
-                  </button>
-                  <div className="d-flex flex-row-reverse align-items-center">
-                    <div className="me-3">
-                      {currentRoom?.avatar ? (
-                        <img src={currentRoom.avatar} alt={currentRoom.name} className="rounded-circle" style={{width: '40px', height: '40px'}} />
-                      ) : (
-                        <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style={{width: '40px', height: '40px'}}>
-                          {currentRoom?.name?.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <h6 className="mb-0">{currentRoom?.name}</h6>
-                      {currentRoom?.description && <small className="text-muted">{currentRoom.description}</small>}
-                    </div>
-                  </div>
-                  <div>
-                    {currentRoom && typingUsers[currentRoom.id] && typingUsers[currentRoom.id].filter((u) => u.userId !== currentLoggedInUserId).length > 0 && (
-                      <TypingIndicatorComponent users={typingUsers[currentRoom.id].filter((u) => u.userId !== currentLoggedInUserId)} />
-                    )}
-                  </div>
-                </Card.Header>
-                <Card.Body className="p-0 d-flex flex-column flex-grow-1" style={{overflowY: 'hidden'}}>
-                  <MessageList
-                    messages={messages[currentRoom?.id]?.items || []}
-                    typingUsers={typingUsers[currentRoom?.id] || []}
-                    isLoading={isLoading}
-                    hasMoreMessages={messages[currentRoom?.id]?.hasMore || false}
-                    onLoadMoreMessages={() => {
-                      if (messages[currentRoom?.id]?.hasMore) {
-                        const nextPage = (messages[currentRoom?.id]?.currentPage || 0) + 1;
-                        handleLoadMessages(currentRoom.id, nextPage, 20, true);
-                      }
-                    }}
-                    isGroupChat={isCurrentRoomGroupChat} // Pass the group chat status
-                  />
-                  {currentRoom && <MessageInput roomId={currentRoom.id} />}
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        )
-      ) : (
-        // دسکتاپ: ساختار قبلی
-        <Row className="h-100 flex-row-reverse gx-2">
-          <Col lg={3} md={4} className="h-100 order-1 order-lg-0 d-flex flex-column">
-            <Card className="flex-grow-1 d-flex flex-column">
-              <Card.Header className="d-flex justify-content-between align-items-center py-2">
-                <h5 className="mb-0 fs-6">چت‌ها</h5>
-                <ConnectionStatus isConnected={isConnected} />
-              </Card.Header>
-              <Card.Body className="chat-list-container p-0 d-flex flex-column flex-grow-1">
-                <ChatRoomList rooms={rooms} currentRoom={currentRoom} onRoomSelect={handleRoomSelect} onNewRoom={() => setShowNewRoomModal(true)} isLoading={isLoading && rooms.length === 0} />
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col lg={9} md={8} className="h-100 order-0 order-lg-1 d-flex flex-column">
-            <Card className="flex-grow-1 d-flex flex-column" style={{overflow: 'hidden'}}>
-              {currentRoom ? (
-                <>
-                  <Card.Header className="py-2">
+    <div className="chat-container">
+      <Container fluid className="h-100 p-0">
+        {isMobile ? (
+          // Mobile Layout: Show either chat list or chat room
+          !currentRoom ? (
+            // Show chat list on mobile when no room is selected
+            <Row className="h-100 gx-0">
+              <Col xs={12} className="h-100 d-flex flex-column">
+                <Card className="flex-grow-1 d-flex flex-column border-0 rounded-0">
+                  <Card.Header className="d-flex justify-content-between align-items-center py-3 border-bottom">
+                    <h5 className="mb-0">چت‌ها</h5>
+                    <ConnectionStatus isConnected={isConnected} />
+                  </Card.Header>
+                  <Card.Body className="chat-list-container p-0 d-flex flex-column flex-grow-1">
+                    <ChatRoomList rooms={rooms} currentRoom={currentRoom} onRoomSelect={handleRoomSelect} onNewRoom={() => setShowNewRoomModal(true)} isLoading={isLoading && rooms.length === 0 && !error} />
+                  </Card.Body>
+                </Card>
+              </Col>
+            </Row>
+          ) : (
+            // Show chat room on mobile when room is selected
+            <Row className="h-100 gx-0">
+              <Col xs={12} className="h-100 d-flex flex-column">
+                <Card className="flex-grow-1 d-flex flex-column border-0 rounded-0" style={{overflow: 'hidden'}}>
+                  <Card.Header className="py-2 border-bottom">
                     <div className="d-flex flex-row-reverse align-items-center justify-content-between">
                       <div className="d-flex align-items-center">
+                        {/* Back button for mobile */}
+                        <Button variant="link" size="sm" className="me-2 p-1" onClick={handleMobileBack}>
+                          <i className="bi bi-arrow-right fs-5"></i>
+                        </Button>
+
                         <div className="me-3">
-                          {currentRoom.avatar ? (
+                          {isSupportChat ? (
+                            <div className="rounded-circle bg-warning text-white d-flex align-items-center justify-content-center" style={{width: '40px', height: '40px'}}>
+                              <i className="bi bi-headset"></i>
+                            </div>
+                          ) : currentRoom.avatar ? (
                             <img src={currentRoom.avatar} alt={currentRoom.name} className="rounded-circle" style={{width: '40px', height: '40px'}} />
                           ) : (
-                            <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style={{width: '40px', height: '40px'}}>
-                              {currentRoom.name.charAt(0).toUpperCase()}
+                            <div className={`rounded-circle ${currentRoom.isGroup ? 'bg-success' : 'bg-primary'} text-white d-flex align-items-center justify-content-center`} style={{width: '40px', height: '40px'}}>
+                              {currentRoom.isGroup ? <i className="bi bi-people-fill"></i> : currentRoom.name.charAt(0).toUpperCase()}
                             </div>
                           )}
                         </div>
-                        <div>
-                          <h6 className="mb-0">{currentRoom.name}</h6>
+
+                        <div className="flex-grow-1">
+                          <h6 className="mb-0">{isSupportChat ? `پشتیبانی - ${currentRoom.name}` : currentRoom.name}</h6>
                           {currentRoom.description && <small className="text-muted">{currentRoom.description}</small>}
+                          {isFromSupport && ticketId && <small className="text-info d-block">تیکت #{ticketId}</small>}
                         </div>
                       </div>
+
                       <div>
                         {typingUsers[currentRoom.id] && typingUsers[currentRoom.id].filter((u) => u.userId !== currentLoggedInUserId).length > 0 && (
                           <TypingIndicatorComponent users={typingUsers[currentRoom.id].filter((u) => u.userId !== currentLoggedInUserId)} />
@@ -232,6 +211,7 @@ const Chat = ({forceRoomId}) => {
                       </div>
                     </div>
                   </Card.Header>
+
                   <Card.Body className="p-0 d-flex flex-column flex-grow-1" style={{overflowY: 'hidden'}}>
                     <MessageList
                       messages={messages[currentRoom.id]?.items || []}
@@ -244,35 +224,103 @@ const Chat = ({forceRoomId}) => {
                           handleLoadMessages(currentRoom.id, nextPage, 20, true);
                         }
                       }}
-                      isGroupChat={isCurrentRoomGroupChat} // Pass the group chat status
+                      isGroupChat={isCurrentRoomGroupChat}
                     />
                     <MessageInput roomId={currentRoom.id} />
                   </Card.Body>
-                </>
-              ) : (
-                <Card.Body className="d-flex align-items-center justify-content-center">
-                  <div className="text-center text-muted">
-                    <i className="bi bi-chat-dots fs-1 mb-3"></i>
-                    <h5>یک چت را انتخاب کنید</h5>
-                    <p>برای شروع گفتگو، یکی از چت‌های موجود را انتخاب کنید یا چت جدید ایجاد کنید.</p>
-                  </div>
+                </Card>
+              </Col>
+            </Row>
+          )
+        ) : (
+          // Desktop Layout: Side by side layout
+          <Row className="h-100 flex-row-reverse gx-2">
+            {/* Chat List Sidebar */}
+            <Col lg={3} md={4} className="h-100 order-1 order-lg-0 d-flex flex-column">
+              <Card className="flex-grow-1 d-flex flex-column">
+                <Card.Header className="d-flex justify-content-between align-items-center py-2">
+                  <h5 className="mb-0 fs-6">چت‌ها</h5>
+                  <ConnectionStatus isConnected={isConnected} />
+                </Card.Header>
+                <Card.Body className="chat-list-container p-0 d-flex flex-column flex-grow-1">
+                  <ChatRoomList rooms={rooms} currentRoom={currentRoom} onRoomSelect={handleRoomSelect} onNewRoom={() => setShowNewRoomModal(true)} isLoading={isLoading && rooms.length === 0} />
                 </Card.Body>
-              )}
-            </Card>
-          </Col>
-        </Row>
-      )}
-      {/* New Room Modal */}
-      <NewRoomModal show={showNewRoomModal} onHide={() => setShowNewRoomModal(false)} onRoomCreated={handleNewRoomCreated} />
-      {isForwardModalVisible && messageIdToForward && <ForwardMessageModal show={isForwardModalVisible} onHide={hideForwardModal} messageIdToForward={messageIdToForward} />}
-      {error && (
-        <div className="position-fixed bottom-0 end-0 p-3" style={{zIndex: 1050}}>
-          <Alert variant="danger" onClose={clearError} dismissible>
-            {error}
-          </Alert>
-        </div>
-      )}
-    </Container>
+              </Card>
+            </Col>
+
+            {/* Main Chat Area */}
+            <Col lg={9} md={8} className="h-100 order-0 order-lg-1 d-flex flex-column">
+              <Card className="flex-grow-1 d-flex flex-column" style={{overflow: 'hidden'}}>
+                {currentRoom ? (
+                  <>
+                    <Card.Header className="py-2">
+                      <div className="d-flex flex-row-reverse align-items-center justify-content-between">
+                        <div className="d-flex align-items-center">
+                          <div className="me-3">
+                            {isSupportChat ? (
+                              <div className="rounded-circle bg-warning text-white d-flex align-items-center justify-content-center" style={{width: '40px', height: '40px'}}>
+                                <i className="bi bi-headset"></i>
+                              </div>
+                            ) : currentRoom.avatar ? (
+                              <img src={currentRoom.avatar} alt={currentRoom.name} className="rounded-circle" style={{width: '40px', height: '40px'}} />
+                            ) : (
+                              <div className={`rounded-circle ${currentRoom.isGroup ? 'bg-success' : 'bg-primary'} text-white d-flex align-items-center justify-content-center`} style={{width: '40px', height: '40px'}}>
+                                {currentRoom.isGroup ? <i className="bi bi-people-fill"></i> : currentRoom.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <h6 className="mb-0">{isSupportChat ? `پشتیبانی - ${currentRoom.name}` : currentRoom.name}</h6>
+                            {currentRoom.description && <small className="text-muted">{currentRoom.description}</small>}
+                            {isFromSupport && ticketId && <small className="text-info d-block">تیکت #{ticketId}</small>}
+                          </div>
+                        </div>
+
+                        <div>
+                          {typingUsers[currentRoom.id] && typingUsers[currentRoom.id].filter((u) => u.userId !== currentLoggedInUserId).length > 0 && (
+                            <TypingIndicatorComponent users={typingUsers[currentRoom.id].filter((u) => u.userId !== currentLoggedInUserId)} />
+                          )}
+                        </div>
+                      </div>
+                    </Card.Header>
+
+                    <Card.Body className="p-0 d-flex flex-column flex-grow-1" style={{overflowY: 'hidden'}}>
+                      <MessageList
+                        messages={messages[currentRoom.id]?.items || []}
+                        typingUsers={typingUsers[currentRoom.id] || []}
+                        isLoading={isLoading}
+                        hasMoreMessages={messages[currentRoom.id]?.hasMore || false}
+                        onLoadMoreMessages={() => {
+                          if (messages[currentRoom.id]?.hasMore) {
+                            const nextPage = (messages[currentRoom.id]?.currentPage || 0) + 1;
+                            handleLoadMessages(currentRoom.id, nextPage, 20, true);
+                          }
+                        }}
+                        isGroupChat={isCurrentRoomGroupChat}
+                      />
+                      <MessageInput roomId={currentRoom.id} />
+                    </Card.Body>
+                  </>
+                ) : (
+                  // Empty state when no room is selected
+                  <div className="h-100 d-flex align-items-center justify-content-center">
+                    <div className="text-center text-muted">
+                      <i className="bi bi-chat-square-text display-1 mb-3"></i>
+                      <h4>چتی انتخاب نشده است</h4>
+                      <p>برای شروع گفتگو، یک چت از لیست انتخاب کنید</p>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </Col>
+          </Row>
+        )}
+      </Container>
+
+      {/* Forward Modal */}
+      {isForwardModalVisible && <ForwardModal isVisible={isForwardModalVisible} onClose={hideForwardModal} rooms={rooms} />}
+    </div>
   );
 };
 

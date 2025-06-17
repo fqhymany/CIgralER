@@ -168,31 +168,23 @@ public class ChatHub : Hub
         }
     }
 
-    public async Task MarkMessageAsRead(string messageIdStr, string roomIdStr)
+    public async Task MarkMessageAsRead(string messageId, string roomId)
     {
         var userId = _user.Id;
-        if (string.IsNullOrEmpty(userId) ||
-            !int.TryParse(messageIdStr, out int msgId) ||
-            !int.TryParse(roomIdStr, out int roomId))
-        {
-            // لاگ خطا یا ارسال خطا به کلاینت
-            return;
-        }
+        var msgId = int.Parse(messageId);
+        var roomIdInt = int.Parse(roomId);
 
-        var message = await _context.ChatMessages.FindAsync(msgId);
-        if (message == null || message.ChatRoomId != roomId)
-        {
-            // پیام وجود ندارد یا متعلق به این روم نیست
-            return;
-        }
+        var message = await _context.ChatMessages
+            .FirstOrDefaultAsync(m => m.Id == msgId && m.ChatRoomId == roomIdInt);
 
-        // آپدیت یا ایجاد MessageStatus
+        if (message == null || message.SenderId == userId) return;
+
         var existingStatus = await _context.MessageStatuses
             .FirstOrDefaultAsync(s => s.MessageId == msgId && s.UserId == userId);
 
         if (existingStatus != null)
         {
-            if (existingStatus.Status != ReadStatus.Read) // فقط اگر قبلا خوانده نشده بود
+            if (existingStatus.Status != ReadStatus.Read)
             {
                 existingStatus.Status = ReadStatus.Read;
                 existingStatus.StatusAt = DateTime.UtcNow;
@@ -210,36 +202,31 @@ public class ChatHub : Hub
             _context.MessageStatuses.Add(status);
         }
 
-        // آپدیت LastReadMessageId در ChatRoomMember
+        // آپدیت LastReadMessageId
         var chatRoomMember = await _context.ChatRoomMembers
-            .FirstOrDefaultAsync(m => m.UserId == userId && m.ChatRoomId == roomId);
+            .FirstOrDefaultAsync(m => m.UserId == userId && m.ChatRoomId == roomIdInt);
 
         if (chatRoomMember != null)
         {
-            // فقط اگر پیام جدیدتر از آخرین پیام خوانده شده قبلی است، آپدیت کن
             if (chatRoomMember.LastReadMessageId == null || msgId > chatRoomMember.LastReadMessageId)
             {
                 chatRoomMember.LastReadMessageId = msgId;
             }
         }
-        // else: کاربر عضو این روم نیست یا مشکلی وجود دارد، لاگ بگیرید.
 
         await _context.SaveChangesAsync(CancellationToken.None);
 
-        // Notify sender about read status (و همچنین سایر کلاینت‌های کاربر دریافت کننده)
-        // ارسال ChatRoomId هم مفید است تا کلاینت بداند کدام لیست پیام را آپدیت کند.
-        if (message.SenderId != null && message.SenderId != userId) // فقط به فرستنده (اگر خودش نباشد) اطلاع بده
+        // اطلاع به فرستنده پیام
+        if (message.SenderId != null && message.SenderId != userId)
         {
             await Clients.User(message.SenderId)
-               .SendAsync("MessageRead", new { MessageId = msgId, ReadBy = userId, ChatRoomId = roomId });
+                .SendAsync("MessageRead", new { MessageId = msgId, ReadBy = userId, ChatRoomId = roomIdInt });
         }
-        // همچنین به سایر کانکشن‌های همین کاربر (خواننده پیام) هم می‌توان اطلاع داد که UI آپدیت شود
-        await Clients.User(userId)
-                .SendAsync("MessageReadReceipt", new { MessageId = msgId, ChatRoomId = roomId, Status = ReadStatus.Read });
 
-
+        // آپدیت unread count برای خود کاربر
+        await UpdateUnreadCount(roomIdInt);
     }
-  
+
     private async Task<List<int>> GetUserChatRoomIds(string? userId)
     {
         return await Task.Run(() =>
@@ -248,6 +235,39 @@ public class ChatHub : Hub
                 .Select(m => m.ChatRoomId)
                 .ToList()
         );
+    }
+
+    public async Task UpdateUnreadCount(int roomId)
+    {
+        var userId = _user.Id;
+
+        try
+        {
+            // محاسبه unread count برای این کاربر در این اتاق
+            var lastReadMessage = await _context.ChatRoomMembers
+                .Where(m => m.UserId == userId && m.ChatRoomId == roomId)
+                .Select(m => m.LastReadMessageId)
+                .FirstOrDefaultAsync();
+
+            var unreadCount = await _context.ChatMessages
+                .Where(m => m.ChatRoomId == roomId &&
+                            m.SenderId != userId &&
+                            !m.IsDeleted &&
+                            (lastReadMessage == null || m.Id > lastReadMessage))
+                .CountAsync();
+
+            // ارسال آپدیت به کلاینت‌های کاربر
+            if (userId != null)
+            {
+                await Clients.User(userId)
+                    .SendAsync("UnreadCountUpdate", new { RoomId = roomId, UnreadCount = unreadCount });
+            }
+        }
+        catch (Exception ex)
+        {
+            // لاگ خطا
+            Console.WriteLine($"Error updating unread count: {ex.Message}");
+        }
     }
 
     public async Task DeleteMessage(int messageId)
@@ -260,11 +280,21 @@ public class ChatHub : Hub
         if (message != null)
         {
             message.IsDeleted = true;
+            message.Content = "[پیام حذف شد]";
+            message.AttachmentUrl = null; // حذف attachment در صورت وجود
+
             await _context.SaveChangesAsync(CancellationToken.None);
 
-            // Broadcast to room
+            // Real-time broadcast به همه اعضای اتاق
             await Clients.Group(message.ChatRoomId.ToString())
-                .SendAsync("MessageDeleted", new { MessageId = messageId, ChatRoomId = message.ChatRoomId, IsDeleted = true });
+                .SendAsync("MessageDeleted", new
+                {
+                    MessageId = messageId,
+                    ChatRoomId = message.ChatRoomId,
+                    IsDeleted = true,
+                    Content = "[پیام حذف شد]"
+                });
         }
     }
+
 }

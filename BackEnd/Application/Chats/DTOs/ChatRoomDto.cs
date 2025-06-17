@@ -1,4 +1,6 @@
-﻿namespace LawyerProject.Application.Chats.DTOs;
+﻿using LawyerProject.Domain.Enums;
+
+namespace LawyerProject.Application.Chats.DTOs;
 
 public record ChatRoomDto(
     int Id,
@@ -7,6 +9,7 @@ public record ChatRoomDto(
     bool IsGroup,
     string? Avatar,
     DateTime CreatedAt,
+    ChatRoomType ChatRoomType,
     int MessageCount,
     string? LastMessageContent,
     DateTime? LastMessageTime,

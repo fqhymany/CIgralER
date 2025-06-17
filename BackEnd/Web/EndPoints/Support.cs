@@ -29,6 +29,10 @@ public class Support : EndpointGroupBase
             .AllowAnonymous()
             .RequireHeader("X-Session-Id");
 
+        group.MapGet("/check-auth", (Delegate)CheckSupportAuth)
+            .WithName("CheckSupportAuth")
+            .RequireCors("ReactApp");
+
         // Agent endpoints (require auth)
         group.MapGet("/tickets", GetAgentTickets)
             .RequireAuthorization("Agent");
@@ -46,18 +50,38 @@ public class Support : EndpointGroupBase
             .RequireAuthorization("Agent");
     }
 
+    private static Task<IResult> CheckSupportAuth(HttpContext context)
+    {
+        var isAuthenticated = context.User?.Identity?.IsAuthenticated == true;
+
+        if (!isAuthenticated)
+        {
+            return Task.FromResult(Results.Json(new
+            {
+                IsAuthenticated = false,
+                LoginUrl = "/login?returnUrl=" + Uri.EscapeDataString(context.Request.Path)
+            }, statusCode: 401));
+        }
+
+        return Task.FromResult(Results.Ok(new { IsAuthenticated = true }));
+    }
+
     private static async Task<IResult> StartSupportChat(
         HttpContext context,
         StartSupportChatRequest request,
         IMediator mediator)
     {
-        // Get IP address
         var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
 
-        // Get or create session ID for guests
         var userId = context.User?.Identity?.IsAuthenticated == true
             ? context.User.FindFirst("sub")?.Value
             : null;
+
+        // اگر کاربر لاگین نکرده، redirect به صفحه login
+        if (string.IsNullOrEmpty(userId) && string.IsNullOrEmpty(request.GuestSessionId))
+        {
+            return Results.Unauthorized();
+        }
 
         var command = new StartSupportChatCommand(
             userId,
