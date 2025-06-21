@@ -744,6 +744,8 @@ export const ChatProvider = ({children}) => {
     }, []),
     // Error handling
     clearError: () => dispatch({type: ActionTypes.SET_ERROR, payload: null}),
+    // اضافه کردن متد ساخت چت جدید به context
+    createChatRoom,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

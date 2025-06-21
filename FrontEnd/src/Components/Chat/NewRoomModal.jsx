@@ -22,7 +22,7 @@ const NewRoomModal = ({show, onHide, onRoomCreated}) => {
 
   const [isSearchFocused, setIsSearchFocused] = useState(false); // state جدید برای ردیابی فوکوس
 
-  const {createChatRoom, onlineUsers} = useChat();
+  const {onlineUsers} = useChat();
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -147,9 +147,7 @@ const NewRoomModal = ({show, onHide, onRoomCreated}) => {
         // regionId is handled by backend
       };
 
-      console.log('Creating chat room with data:', roomData);
-      const newRoom = await createChatRoom(roomData);
-      console.log('Chat room created:', newRoom);
+      const newRoom = await chatApi.createChatRoom(roomData);
 
       // Only call onRoomCreated after successful creation
       if (newRoom) {
@@ -157,7 +155,7 @@ const NewRoomModal = ({show, onHide, onRoomCreated}) => {
       }
     } catch (error) {
       console.error('Error creating chat room:', error);
-      setError(error.message || 'خطا در ایجاد گروه');
+      setError(error.message || 'خطا در ایجاد گروه');     
       setIsSubmitting(false); // Reset submitting state on error
     } finally {
       setIsLoading(false);

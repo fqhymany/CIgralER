@@ -35,7 +35,13 @@ export const ActionTypes = {
   SHOW_FORWARD_MODAL: 'SHOW_FORWARD_MODAL',
   HIDE_FORWARD_MODAL: 'HIDE_FORWARD_MODAL',
   FORWARD_MESSAGE_SUCCESS: 'FORWARD_MESSAGE_SUCCESS',
+  SET_EDITING_MESSAGE: 'SET_EDITING_MESSAGE',
+  CLEAR_EDITING_MESSAGE: 'CLEAR_EDITING_MESSAGE',
+  SET_FORWARDING_MESSAGE: 'SET_FORWARDING_MESSAGE',
+  CLEAR_FORWARDING_MESSAGE: 'CLEAR_FORWARDING_MESSAGE',
 };
+
+
 
 // Initial state
 export const initialState = {
@@ -52,6 +58,8 @@ export const initialState = {
   replyingToMessage: null, // { id, content, senderName, type, ... }
   isForwardModalVisible: false,
   messageIdToForward: null,
+  editingMessage: null, 
+  forwardingMessage: null,
 };
 
 export const ChatContext = createContext();

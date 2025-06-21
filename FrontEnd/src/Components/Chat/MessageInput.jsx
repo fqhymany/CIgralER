@@ -1,100 +1,132 @@
 import React, {useState, useRef, useEffect} from 'react';
-import {Form, Button, OverlayTrigger, Popover} from 'react-bootstrap';
+import {Form, Button, Spinner, CloseButton, OverlayTrigger, Popover} from 'react-bootstrap';
+import {EmojiSmile, Paperclip, Mic, Send} from 'react-bootstrap-icons';
 import {useChat} from '../../hooks/useChat';
 import {MessageType} from '../../types/chat';
-import {IoSend} from 'react-icons/io5';
-import {BsEmojiSmile, BsPaperclip, BsMic, BsMicFill} from 'react-icons/bs';
+import './Chat.css';
+import {IoSend, IoCheckmark, IoClose} from 'react-icons/io5';
+import {BsEmojiSmile, BsPaperclip, BsMic, BsMicFill, BsReply as Reply, BsPencil as Pencil, BsForward as Forward} from 'react-icons/bs';
 import EmojiPicker, {EmojiStyle} from 'emoji-picker-react';
 import './Chat.css';
 
 const MessageInput = ({roomId}) => {
   const [message, setMessage] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const {sendMessage, startTyping, stopTyping, replyingToMessage, clearReplyingToMessage, editingMessage, clearEditingMessage, editMessage, forwardingMessage, clearForwardingMessage, forwardMessage} = useChat();
+  const [isSending, setIsSending] = useState(false);
+  const textareaRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-
-  const {sendMessage, startTyping, stopTyping, replyingToMessage, clearReplyingToMessage} = useChat();
-
   const fileInputRef = useRef(null);
-  const textareaRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordingIntervalRef = useRef(null);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   }, [message]);
 
-  // Handle typing indicator
-  const handleTyping = () => {
-    if (!isTyping) {
-      setIsTyping(true);
-      startTyping(roomId);
+  useEffect(() => {
+    if (replyingToMessage) {
+      textareaRef.current?.focus();
     }
+  }, [replyingToMessage]);
 
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
+  const isEditing = !!editingMessage;
+  const isReplying = !!replyingToMessage;
+  const isForwarding = !!forwardingMessage;
+
+  useEffect(() => {
+    if (isEditing) {
+      setMessage(editingMessage.content);
+      textareaRef.current?.focus();
+    } else if (isReplying || isForwarding) {
+      textareaRef.current?.focus();
     }
+  }, [isEditing, editingMessage, isReplying, isForwarding]);
 
-    typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      stopTyping(roomId);
-    }, 1000);
+  const handleCancelAction = () => {
+    if (isEditing) clearEditingMessage();
+    if (isReplying) clearReplyingToMessage();
+    if (isForwarding) clearForwardingMessage();
+    setMessage('');
   };
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-      }
-      if (isTyping) {
-        stopTyping(roomId);
-      }
-    };
-  }, [roomId, isTyping, stopTyping]);
+  const handleSubmit = async () => {
+    const content = message.trim();
+    if (!content && !isForwarding) return;
+    if (isSending) return;
 
-  const handleInputChange = (e) => {
-    setMessage(e.target.value);
-    handleTyping();
+    setIsSending(true);
+
+    try {
+      if (isEditing) {
+        await editMessage(editingMessage.id, content);
+      } else if (isReplying) {
+        await sendMessage(roomId, {content, type: MessageType.Text, replyToMessageId: replyingToMessage.id});
+      } else if (isForwarding) {
+        // برای هدایت، محتوای جدیدی ارسال نمی‌شود
+        await forwardMessage(forwardingMessage.id, roomId);
+      } else {
+        await sendMessage(roomId, {content, type: MessageType.Text});
+      }
+
+      handleCancelAction(); // پاک کردن همه حالت‌ها
+      setMessage('');
+    } catch (error) {
+      console.error('Action failed:', error);
+      // پیام را در صورت خطا بازگردان
+      if (!isForwarding) setMessage(content);
+    } finally {
+      setIsSending(false);
+      textareaRef.current?.focus();
+    }
+  };
+
+  const handleTyping = () => {
+    if (!typingTimeoutRef.current) {
+      startTyping(roomId);
+    } else {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      stopTyping(roomId);
+      typingTimeoutRef.current = null;
+    }, 1500);
+  };
+
+  const handleSendMessage = async () => {
+    const content = message.trim();
+    if (!content || isSending) return;
+
+    setIsSending(true);
+    setMessage('');
+
+    try {
+      await sendMessage(roomId, {
+        content,
+        type: MessageType.Text,
+        replyToMessageId: replyingToMessage?.id,
+      });
+      clearReplyingToMessage();
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      setMessage(content); // Restore message on failure
+    } finally {
+      setIsSending(false);
+      textareaRef.current?.focus();
+    }
   };
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!message.trim()) return;
-
-    const messageContent = message.trim();
-    setMessage('');
-
-    try {
-      await sendMessage(roomId, {
-        content: messageContent,
-        type: MessageType.Text,
-        replyToMessageId: replyingToMessage?.id,
-      });
-
-      if (replyingToMessage) {
-        clearReplyingToMessage();
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      setMessage(messageContent); // Restore message on error
     }
   };
 
@@ -252,26 +284,65 @@ const MessageInput = ({roomId}) => {
 
   // Emoji picker popover
   const emojiPickerPopover = (
-    <Popover id="emoji-picker-popover" style={{maxWidth: 'none'}}>
+    <Popover id="emoji-picker-popover" style={{maxWidth: 'none', direction: 'ltr'}}>
       <Popover.Body className="p-0">
         <EmojiPicker onEmojiClick={onEmojiClick} emojiStyle={EmojiStyle.NATIVE} />
       </Popover.Body>
     </Popover>
   );
 
-  return (
-    <div className="chat-input-container">
-      {/* Reply indicator */}
-      {replyingToMessage && (
-        <div className="reply-indicator bg-light p-2 border-top d-flex justify-content-between align-items-center">
+  const renderActionPreview = () => {
+    if (isEditing) {
+      return (
+        <div className="action-preview">
+          <Pencil className="me-2" />
           <div>
-            <small className="text-muted">پاسخ به:</small>
-            <div className="fw-bold">{replyingToMessage.senderFullName}</div>
-            <div className="text-truncate">{replyingToMessage.content}</div>
+            <div className="fw-bold text-primary">ویرایش پیام</div>
+            <div className="preview-content text-muted">{editingMessage.content}</div>
           </div>
-          <Button variant="link" size="sm" onClick={clearReplyingToMessage} className="p-1">
-            <i className="bi bi-x"></i>
-          </Button>
+          <CloseButton onClick={handleCancelAction} />
+        </div>
+      );
+    }
+    if (isReplying) {
+      return (
+        <div className="action-preview">
+          <Reply className="me-2" />
+          <div>
+            <div className="fw-bold text-primary">پاسخ به: {replyingToMessage.senderFullName}</div>
+            <div className="preview-content text-muted">{replyingToMessage.content}</div>
+          </div>
+          <CloseButton onClick={handleCancelAction} />
+        </div>
+      );
+    }
+    if (isForwarding) {
+      return (
+        <div className="action-preview">
+          <Forward className="me-2" />
+          <div>
+            <div className="fw-bold text-primary">هدایت پیام</div>
+            <div className="preview-content text-muted">از: {forwardingMessage.senderFullName}</div>
+          </div>
+          <CloseButton onClick={handleCancelAction} />
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div className="message-input-container p-2">
+      {renderActionPreview()}
+      {replyingToMessage && (
+        <div className="reply-preview d-flex justify-content-between align-items-center">
+          <div>
+            <div className="fw-bold text-primary" style={{fontSize: '0.8rem'}}>
+              پاسخ به: {replyingToMessage.senderFullName}
+            </div>
+            <div className="reply-preview-content text-muted">{replyingToMessage.content}</div>
+          </div>
+          <CloseButton onClick={clearReplyingToMessage} />
         </div>
       )}
 
@@ -299,59 +370,61 @@ const MessageInput = ({roomId}) => {
         </div>
       )}
 
-      {/* Input area */}
-      <div className="chat-input-wrapper">
-        {/* File upload, voice, and send buttons */}
-        <div className="attachment-buttons">
-          {/* اگر پیام وجود دارد فقط دکمه ارسال */}
-          {message.trim() ? (
-            <Button variant="primary" size="sm" className="chat-send-button" onClick={handleSendMessage} disabled={isUploading || isRecording}>
-              <IoSend size={20} />
+      <div className="message-input-wrapper gap-1">
+        <div className="message-input-actions d-flex flex-grow-1 gap-1">
+          <div>
+            {/* Emoji picker button */}
+            <OverlayTrigger trigger="click" placement="top" overlay={emojiPickerPopover} rootClose>
+              <Button variant="link" className="attachment-button p-1" disabled={isUploading || isRecording} title="افزودن ایموجی">
+                <BsEmojiSmile size={20} />
+              </Button>
+            </OverlayTrigger>
+          </div>
+          <div className="flex-grow-1">
+            <Form.Control
+              ref={textareaRef}
+              as="textarea"
+              rows={1}
+              placeholder={isForwarding ? 'برای ارسال پیام هدایت شده، دکمه ارسال را بزنید' : 'پیام...'}
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                handleTyping();
+              }}
+              onKeyDown={handleKeyPress}
+              disabled={isSending || isForwarding}
+              className="message-input-field"
+            />
+          </div>
+          <div className="d-flex gap-0">
+            {message.trim() ? (
+              <Button variant="link" onClick={handleSendMessage} disabled={!message.trim() || isSending} className="send-button p-1">
+                {isSending ? <Spinner size="sm" /> : <IoSend size={20} className="icon_flip" />}
+              </Button>
+            ) : (
+              <>
+                <input ref={fileInputRef} type="file" className="d-none p-1" onChange={handleFileSelect} accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar" disabled={isUploading || isRecording} />
+                <Button variant="link" className="attachment-button p-1" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isRecording} title="ضمیمه فایل">
+                  <Paperclip size={22} />
+                </Button>
+                <Button
+                  variant="link"
+                  className={`attachment-button p-1 ${isRecording ? 'recording-indicator p-1' : 'p-1'}`}
+                  onClick={isRecording ? stopRecording : startRecording}
+                  disabled={isUploading}
+                  title={isRecording ? 'توقف ضبط' : 'ضبط صدا'}
+                >
+                  {isRecording ? <BsMicFill size={20} color="#dc3545" /> : <Mic size={22} />}
+                </Button>
+              </>
+            )}
+          </div>
+          <div className="d-flex gap-0">
+            <Button variant="link" onClick={handleSubmit} disabled={isSending || (!message.trim() && !isForwarding)} className="send-button p-1">
+              {isSending ? <Spinner size="sm" /> : isEditing ? <IoCheckmark size={24} /> : <IoSend size={20} className="icon_flip" />}
             </Button>
-          ) : (
-            // اگر پیام خالی است، دکمه‌های فایل و ضبط صدا
-            <>
-              <input ref={fileInputRef} type="file" className="d-none" onChange={handleFileSelect} accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar" disabled={isUploading || isRecording} />
-              <button className="attachment-button" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isRecording} title="ضمیمه فایل">
-                <BsPaperclip size={20} />
-              </button>
-              <button className={`attachment-button ${isRecording ? 'recording-indicator' : ''}`} onClick={isRecording ? stopRecording : startRecording} disabled={isUploading} title={isRecording ? 'توقف ضبط' : 'ضبط صدا'}>
-                {isRecording ? <BsMicFill size={20} color="#dc3545" /> : <BsMic size={20} />}
-              </button>
-            </>
-          )}
+          </div>
         </div>
-
-        {/* Text input */}
-        <div className="flex-grow-1">
-          <Form.Control
-            ref={textareaRef}
-            as="textarea"
-            rows="1"
-            placeholder={isRecording ? 'در حال ضبط...' : 'پیام'}
-            value={message}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyPress}
-            disabled={isUploading || isRecording}
-            style={{
-              resize: 'none',
-              minHeight: '40px',
-              maxHeight: '120px',
-              border: 'none',
-              boxShadow: 'none',
-              outline: 'none',
-              background: 'transparent',
-            }}
-            className="chat-input"
-          />
-        </div>
-
-        {/* Emoji picker button */}
-        <OverlayTrigger trigger="click" placement="top" overlay={emojiPickerPopover} rootClose>
-          <button className="attachment-button" disabled={isUploading || isRecording} title="افزودن ایموجی">
-            <BsEmojiSmile size={20} />
-          </button>
-        </OverlayTrigger>
       </div>
     </div>
   );

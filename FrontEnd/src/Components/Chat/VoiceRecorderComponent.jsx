@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Send, X, Play, Pause } from 'lucide-react';
+import React, {useState, useRef, useEffect} from 'react';
+import {Mic, Square, Send, X, Play, Pause} from 'lucide-react';
+import {chatApi, fileHelpers, MessageType} from '../../services/chatApi';
 
-const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
+const VoiceRecorderComponent = ({onVoiceRecorded, disabled, chatRoomId}) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -10,7 +11,10 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackTime, setPlaybackTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  
+
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
@@ -22,7 +26,7 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
     return () => {
       // Cleanup
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -35,20 +39,20 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100
-        } 
+          sampleRate: 44100,
+        },
       });
-      
+
       streamRef.current = stream;
-      
+
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
+        mimeType: 'audio/webm;codecs=opus',
       });
-      
+
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -59,25 +63,24 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, {type: 'audio/webm'});
         setAudioBlob(audioBlob);
-        
+
         const url = URL.createObjectURL(audioBlob);
         setAudioUrl(url);
-        
+
         // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorder.start(100); // Collect data every 100ms
       setIsRecording(true);
       setRecordingTime(0);
-      
+
       // Start timer
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime((prev) => prev + 1);
       }, 1000);
-      
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Unable to access microphone. Please check permissions.');
@@ -88,7 +91,7 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      
+
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
@@ -97,18 +100,18 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
 
   const pauseResumeRecording = () => {
     if (!mediaRecorderRef.current) return;
-    
+
     if (isPaused) {
       mediaRecorderRef.current.resume();
       setIsPaused(false);
-      
+
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime((prev) => prev + 1);
       }, 1000);
     } else {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
-      
+
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
@@ -116,38 +119,35 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
   };
 
   const sendVoiceMessage = async () => {
-    if (!audioBlob) return;
-    
+    if (!audioBlob || !chatRoomId) return;
+
     try {
-      // Upload audio file
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'voice-message.webm');
-      formData.append('type', '3'); // Audio type
+      setIsUploading(true);
+      setUploadProgress(0);
 
-      const response = await fetch('/api/chat/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
+      const result = await chatApi.uploadFile(
+        audioBlob,
+        chatRoomId,
+        MessageType.Audio, // assuming MessageType.AUDIO is 3
+        (progress) => setUploadProgress(progress)
+      );
 
-      if (!response.ok) throw new Error('Upload failed');
-      
-      const result = await response.json();
-      
       // Send to parent component
       onVoiceRecorded({
         url: result.fileUrl,
         duration: recordingTime,
-        size: audioBlob.size
+        size: audioBlob.size,
+        type: MessageType.AUDIO,
+        mimeType: 'audio/webm',
       });
-      
+
       // Reset
       resetRecording();
+      setIsUploading(false);
     } catch (error) {
       console.error('Failed to send voice message:', error);
       alert('Failed to send voice message');
+      setIsUploading(false);
     }
   };
 
@@ -159,24 +159,24 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
     setAudioUrl(null);
     setIsPlaying(false);
     setPlaybackTime(0);
-    
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
-    
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach((track) => track.stop());
     }
   };
 
   const togglePlayback = () => {
     if (!audioRef.current) return;
-    
+
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
@@ -195,7 +195,7 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
   const updatePlaybackTime = () => {
     if (audioRef.current) {
       setPlaybackTime(Math.floor(audioRef.current.currentTime));
-      
+
       if (!audioRef.current.paused) {
         animationRef.current = requestAnimationFrame(updatePlaybackTime);
       }
@@ -206,22 +206,14 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
   if (isRecording) {
     return (
       <div className="flex items-center gap-2 bg-red-50 rounded-lg p-2">
-        <button
-          onClick={stopRecording}
-          className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
-          title="Stop recording"
-        >
+        <button onClick={stopRecording} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition" title="Stop recording">
           <Square className="w-4 h-4" />
         </button>
-        
-        <button
-          onClick={pauseResumeRecording}
-          className="p-2 bg-gray-500 text-white rounded-full hover:bg-gray-600 transition"
-          title={isPaused ? "Resume" : "Pause"}
-        >
+
+        <button onClick={pauseResumeRecording} className="p-2 bg-gray-500 text-white rounded-full hover:bg-gray-600 transition" title={isPaused ? 'Resume' : 'Pause'}>
           {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
         </button>
-        
+
         <div className="flex items-center gap-2 px-3">
           <div className="flex gap-1">
             <span className="w-1 h-4 bg-red-500 rounded-full animate-pulse"></span>
@@ -239,13 +231,10 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
     return (
       <div className="absolute bottom-12 left-0 right-0 bg-white shadow-lg rounded-lg p-4 border mx-4">
         <div className="flex items-center gap-3">
-          <button
-            onClick={togglePlayback}
-            className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
-          >
+          <button onClick={togglePlayback} className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition" disabled={isUploading}>
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           </button>
-          
+
           <div className="flex-1">
             <audio
               ref={audioRef}
@@ -259,37 +248,40 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
               }}
               className="hidden"
             />
-            
+
             <div className="bg-gray-200 rounded-full h-2 relative">
-              <div 
+              <div
                 className="bg-blue-500 h-2 rounded-full transition-all"
-                style={{ 
-                  width: `${duration > 0 ? (playbackTime / duration) * 100 : 0}%` 
+                style={{
+                  width: `${duration > 0 ? (playbackTime / duration) * 100 : 0}%`,
                 }}
               />
             </div>
-            
+
             <div className="flex justify-between text-xs text-gray-500 mt-1">
               <span>{formatTime(playbackTime)}</span>
               <span>{formatTime(duration || recordingTime)}</span>
             </div>
           </div>
-          
-          <button
-            onClick={sendVoiceMessage}
-            className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition"
-            title="Send voice message"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-          
-          <button
-            onClick={resetRecording}
-            className="p-2 hover:bg-gray-100 rounded-full transition"
-            title="Cancel"
-          >
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
+
+          {isUploading ? (
+            <div className="flex-1">
+              <div className="bg-gray-200 rounded-full h-2 relative">
+                <div className="bg-green-500 h-2 rounded-full transition-all" style={{width: `${uploadProgress}%`}} />
+              </div>
+              <div className="text-xs text-gray-500 mt-1 text-center">{uploadProgress}%</div>
+            </div>
+          ) : (
+            <>
+              <button onClick={sendVoiceMessage} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition" title="Send voice message" disabled={!chatRoomId}>
+                <Send className="w-4 h-4" />
+              </button>
+
+              <button onClick={resetRecording} className="p-2 hover:bg-gray-100 rounded-full transition" title="Cancel" disabled={isUploading}>
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -297,19 +289,14 @@ const VoiceRecorderComponent = ({ onVoiceRecorded, disabled }) => {
 
   // Default UI
   return (
-    <button
-      onClick={startRecording}
-      disabled={disabled}
-      className="p-2 hover:bg-gray-100 rounded-lg transition disabled:opacity-50"
-      title="Record voice message"
-    >
+    <button onClick={startRecording} disabled={disabled} className="p-2 hover:bg-gray-100 rounded-lg transition disabled:opacity-50" title="Record voice message">
       <Mic className="w-5 h-5 text-gray-500" />
     </button>
   );
 };
 
 // کامپوننت پخش صدا در پیام
-export const VoiceMessagePlayer = ({ audioUrl, duration }) => {
+export const VoiceMessagePlayer = ({audioUrl, duration}) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(duration || 0);
@@ -322,7 +309,7 @@ export const VoiceMessagePlayer = ({ audioUrl, duration }) => {
 
     const updateProgress = () => {
       setCurrentTime(audio.currentTime);
-      
+
       if (progressRef.current) {
         const percentage = (audio.currentTime / audio.duration) * 100;
         progressRef.current.style.width = `${percentage}%`;
@@ -351,7 +338,7 @@ export const VoiceMessagePlayer = ({ audioUrl, duration }) => {
 
   const togglePlayback = () => {
     if (!audioRef.current) return;
-    
+
     if (isPlaying) {
       audioRef.current.pause();
     } else {
@@ -362,12 +349,12 @@ export const VoiceMessagePlayer = ({ audioUrl, duration }) => {
 
   const handleProgressClick = (e) => {
     if (!audioRef.current) return;
-    
+
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const percentage = x / rect.width;
     const newTime = percentage * audioRef.current.duration;
-    
+
     audioRef.current.currentTime = newTime;
     setCurrentTime(newTime);
   };
@@ -380,31 +367,21 @@ export const VoiceMessagePlayer = ({ audioUrl, duration }) => {
 
   return (
     <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-3 min-w-[280px]">
-      <button
-        onClick={togglePlayback}
-        className="p-2 bg-white rounded-full hover:bg-gray-200 transition flex-shrink-0"
-      >
+      <button onClick={togglePlayback} className="p-2 bg-white rounded-full hover:bg-gray-200 transition flex-shrink-0">
         {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
       </button>
-      
+
       <div className="flex-1">
-        <div 
-          className="bg-gray-300 rounded-full h-1.5 cursor-pointer relative"
-          onClick={handleProgressClick}
-        >
-          <div 
-            ref={progressRef}
-            className="bg-blue-500 h-1.5 rounded-full transition-all absolute top-0 left-0"
-            style={{ width: '0%' }}
-          />
+        <div className="bg-gray-300 rounded-full h-1.5 cursor-pointer relative" onClick={handleProgressClick}>
+          <div ref={progressRef} className="bg-blue-500 h-1.5 rounded-full transition-all absolute top-0 left-0" style={{width: '0%'}} />
         </div>
-        
+
         <div className="flex justify-between text-xs text-gray-600 mt-1">
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(audioDuration)}</span>
         </div>
       </div>
-      
+
       <audio ref={audioRef} src={audioUrl} preload="metadata" />
     </div>
   );
