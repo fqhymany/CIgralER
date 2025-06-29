@@ -15,7 +15,7 @@ public interface IApplicationDbContext
     DbSet<Region> Regions { get; }
     DbSet<UsersRole> UsersRoles { get; }
     DbSet<Role> Roles { get; }
-    DbSet<CaseType> CaseTypes { get;}
+    DbSet<CaseType> CaseTypes { get; }
     DbSet<CaseStatus> CaseStatuss { get; }
     DbSet<HearingStage> HearingStages { get; }
     DbSet<PredefinedSubject> PredefinedSubjects { get; }
@@ -41,17 +41,17 @@ public interface IApplicationDbContext
     DbSet<BankBranch> BankBranches { get; }
     DbSet<BankAccount> BankAccounts { get; }
     DbSet<CasePaymentTransactionsDetail> CasePayTnxDetail { get; }
-    DbSet<PaymentMethodOption> PaymentMethodOptions { get;}
-    DbSet<PayOptionCash> PayOptionCashes { get;}
-    DbSet<PayOptionDeposit> PayOptionDeposits { get;}
-    DbSet<PayOptionCheck> PayOptionChecks { get;}
-    DbSet<PayOptionOther> PayOptionOthers { get;}
+    DbSet<PaymentMethodOption> PaymentMethodOptions { get; }
+    DbSet<PayOptionCash> PayOptionCashes { get; }
+    DbSet<PayOptionDeposit> PayOptionDeposits { get; }
+    DbSet<PayOptionCheck> PayOptionChecks { get; }
+    DbSet<PayOptionOther> PayOptionOthers { get; }
     DbSet<FileAccessLog> FileAccessLogs { get; }
     DbSet<EncryptionKey> EncryptionKeys { get; }
     DbSet<EncryptedFileMetadata> EncryptedFileMetadata { get; set; }
     DbSet<FileAccessToken> FileAccessTokens { get; set; }
     DbSet<PreferenceKey> PreferenceKeys { get; }
-    DbSet<UserPreference> UserPreferences { get;}
+    DbSet<UserPreference> UserPreferences { get; }
     DbSet<UserDevice> UserDevices { get; }
     DbSet<RolePermission> RolePermissions { get; }
 
@@ -63,6 +63,7 @@ public interface IApplicationDbContext
     DbSet<UserConnection> UserConnections { get; }
     DbSet<GuestUser> GuestUsers { get; }
     DbSet<SupportTicket> SupportTickets { get; }
+    DbSet<ChatFileMetadata> ChatFileMetadatas { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

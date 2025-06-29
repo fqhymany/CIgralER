@@ -1,3 +1,4 @@
+import {Navigate} from 'react-router-dom';
 import {Counter} from './Pages/Counter';
 import {FetchData} from './Pages/FetchData';
 import {Home} from './Pages/Home';
@@ -35,8 +36,7 @@ import Chat from './components/Chat/Chat';
 
 const AppRoutes = [
   {
-    // index: true,
-    path: '/',
+    index: true,
     element: <Home />,
     requireAuth: true,
     title: 'خانه',
@@ -58,25 +58,25 @@ const AppRoutes = [
     path: '/Cases',
     element: <Cases />,
     title: 'پرونده ها',
-    requireAuth: false,
+    requireAuth: true, // تغییر به true برای محافظت از این صفحه
     children: [
       {
         path: 'EditCase/:id',
         element: <CreateCaseForm />,
         title: 'ویرایش پرونده',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'CaseDashboard/:id',
         element: <CaseDashboard />,
         title: 'مدیریت پرونده ',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'CreateCase',
         element: <CreateCaseForm />,
         title: 'ایجاد پرونده جدید',
-        requireAuth: false,
+        requireAuth: true,
       },
     ],
   },
@@ -90,7 +90,7 @@ const AppRoutes = [
     path: '/TasksCalendar',
     element: <TasksCalendar />,
     title: 'تقویم ',
-    requireAuth: false,
+    requireAuth: true, // تغییر به true برای محافظت
   },
   {
     path: '/ForgotPassword',
@@ -108,61 +108,61 @@ const AppRoutes = [
     path: '/FinancialOverview',
     element: <FinancialOverview />,
     title: 'وضعیت مالی',
-    requireAuth: false,
+    requireAuth: true, // تغییر به true برای محافظت
   },
   {
     path: '/BasicInformation',
     element: <BasicInformation />,
     title: 'اطلاعات پایه',
-    requireAuth: false,
+    requireAuth: true, // تغییر به true برای محافظت
     children: [
       {
         path: 'CaseType',
         element: <CaseType />,
         title: 'نوع پرونده',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'CaseStatus',
         element: <CaseStatus />,
         title: 'وضعیت پرونده',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'CasePredefinedSubject',
         element: <CasePredefinedSubject />,
         title: 'موضوع پیش فرض پرونده',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'ClientRoleInCase',
         element: <ClientRoleInCase />,
         title: 'نقش موکل در پرونده',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'Judge',
         element: <Judge />,
         title: 'قاضی',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'CourtType',
         element: <CourtType />,
         title: 'نوع دادگاه',
-        requireAuth: false,
+        requireAuth: true,
       },
       {
         path: 'CourtSubType',
         element: <CourtSubType />,
-        requireAuth: false,
+        requireAuth: true,
         title: 'زیرنوع دادگاه',
       },
       {
         path: 'settings',
         element: <UserPreferenceForm />,
         title: 'تنظیمات',
-        requireAuth: false,
+        requireAuth: true,
       },
     ],
   },
@@ -250,7 +250,7 @@ const AppRoutes = [
     element: <Chat />,
     title: 'گفتگو',
     requireAuth: true,
-    layoutType: 'none', 
+    layoutType: 'none',
   },
   {
     path: '*',

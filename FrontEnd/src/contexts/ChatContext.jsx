@@ -290,6 +290,16 @@ function chatReducer(state, action) {
     case ActionTypes.CLEAR_REPLYING_TO_MESSAGE:
       return {...state, replyingToMessage: null};
 
+    case ActionTypes.SET_EDITING_MESSAGE:
+      return {...state, editingMessage: action.payload};
+    case ActionTypes.CLEAR_EDITING_MESSAGE:
+      return {...state, editingMessage: null};
+
+    case ActionTypes.SET_FORWARDING_MESSAGE:
+      return {...state, forwardingMessage: action.payload};
+    case ActionTypes.CLEAR_FORWARDING_MESSAGE:
+      return {...state, forwardingMessage: null};
+
     case ActionTypes.MESSAGE_REACTION_SUCCESS: {
       const {messageId, userId, userName, emoji, chatRoomId, isRemoved} = action.payload; // userName اینجا در واقع userFullName است
       if (!state.messages[chatRoomId]) return state;
@@ -339,6 +349,28 @@ export const ChatProvider = ({children}) => {
     ...initialState,
     currentLoggedInUserId: getUserIdFromToken(localStorage.getItem('token')),
   });
+
+  // --- Auto reconnect logic ---
+  React.useEffect(() => {
+    let reconnectTimer = null;
+    let tryCount = 0;
+    if (!state.isConnected) {
+      reconnectTimer = setInterval(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+          signalRService.startConnection(token);
+        }
+        tryCount++;
+        if (tryCount >= 3 && window.location.pathname.toLowerCase() !== '/home/login') {
+          clearInterval(reconnectTimer);
+          window.location.reload(); // شبه رفرش دستی
+        }
+      }, 3000);
+    }
+    return () => {
+      if (reconnectTimer) clearInterval(reconnectTimer);
+    };
+  }, [state.isConnected]);
 
   // Initialize SignalR connection
   useEffect(() => {
@@ -615,11 +647,9 @@ export const ChatProvider = ({children}) => {
   }, []);
 
   const editMessage = useCallback(
-    async (messageId, roomId, newContent) => {
+    async (messageId, newContent) => {
       try {
         const updatedMessageDto = await chatApi.editMessage(messageId, newContent);
-        // SignalR will broadcast "MessageEdited", so local dispatch might be redundant if handled by SignalR listener
-        // dispatch({ type: ActionTypes.EDIT_MESSAGE_SUCCESS, payload: updatedMessageDto });
         return updatedMessageDto;
       } catch (error) {
         dispatch({type: ActionTypes.SET_ERROR, payload: error.message});
@@ -651,6 +681,28 @@ export const ChatProvider = ({children}) => {
 
   const clearReplyingToMessage = useCallback(() => {
     dispatch({type: ActionTypes.CLEAR_REPLYING_TO_MESSAGE});
+  }, [dispatch]);
+
+  const setEditingMessage = useCallback(
+    (messageData) => {
+      dispatch({type: ActionTypes.SET_EDITING_MESSAGE, payload: messageData});
+    },
+    [dispatch]
+  );
+
+  const clearEditingMessage = useCallback(() => {
+    dispatch({type: ActionTypes.CLEAR_EDITING_MESSAGE});
+  }, [dispatch]);
+
+  const setForwardingMessage = useCallback(
+    (messageData) => {
+      dispatch({type: ActionTypes.SET_FORWARDING_MESSAGE, payload: messageData});
+    },
+    [dispatch]
+  );
+
+  const clearForwardingMessage = useCallback(() => {
+    dispatch({type: ActionTypes.CLEAR_FORWARDING_MESSAGE});
   }, [dispatch]);
 
   const sendReaction = useCallback(
@@ -710,6 +762,8 @@ export const ChatProvider = ({children}) => {
     replyingToMessage: state.replyingToMessage,
     isForwardModalVisible: state.isForwardModalVisible,
     messageIdToForward: state.messageIdToForward,
+    editingMessage: state.editingMessage,
+    forwardingMessage: state.forwardingMessage,
 
     // Actions
     loadRooms, // اگر loadRooms نیاز است
@@ -724,6 +778,10 @@ export const ChatProvider = ({children}) => {
     markAllMessagesAsReadInRoom,
     setReplyingToMessage,
     clearReplyingToMessage,
+    setEditingMessage,
+    clearEditingMessage,
+    setForwardingMessage,
+    clearForwardingMessage,
     sendReaction,
     showForwardModal,
     hideForwardModal,

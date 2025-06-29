@@ -1,7 +1,7 @@
 // App.jsx
 
 import React, {Suspense} from 'react';
-import {Route, Routes} from 'react-router-dom';
+import {useLocation, Route, Routes} from 'react-router-dom';
 import AppRoutes from './AppRoutes';
 import {Layout} from './layouts/Layout';
 import {LoginLayout} from './layouts/LoginLayout';
@@ -18,7 +18,8 @@ import AgentDashboard from './components/Chat/AgentDashboard';
 import ChatRoom from './components/Chat/Chat';
 import ChatList from './components/Chat/ChatRoomList';
 import ProtectedRoute from './components/ProtectedRoute';
-import { isAgent } from './utils/isAgent';
+import {isAgent} from './utils/isAgent';
+import useDynamicManifest from './hooks/useDynamicManifest';
 
 const renderRoutes = (routes) =>
   routes.map((route, index) => {
@@ -45,7 +46,11 @@ const renderRoutes = (routes) =>
   });
 
 export default function App() {
-  const { isLoading, user } = useAuth();
+  const {isLoading, user} = useAuth();
+  const location = useLocation();
+
+  // استفاده از dynamic manifest hook
+  useDynamicManifest();
 
   if (isLoading) {
     return (
@@ -118,7 +123,8 @@ export default function App() {
 
           {renderRoutes(AppRoutes)}
         </Routes>
-        {showLiveChatWidget && <LiveChatWidget />}
+
+        {showLiveChatWidget && !location.pathname.toLowerCase().startsWith('/chat') && <LiveChatWidget />}
         <ToastContainer rtl={true} />
       </Suspense>
     </>

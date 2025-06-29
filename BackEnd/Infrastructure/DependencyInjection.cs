@@ -105,7 +105,7 @@ public static class DependencyInjection
 
         // Add Live Chat Support Services
         builder.Services.AddScoped<IAgentAssignmentService, AgentAssignmentService>();
-        builder.Services.AddScoped<IFileStorageService, LocalFileStorageService>();
+        builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 
         // Configure file upload limits
         builder.Services.Configure<FormOptions>(options =>

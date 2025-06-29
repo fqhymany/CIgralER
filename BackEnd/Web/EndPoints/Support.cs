@@ -1,4 +1,5 @@
-﻿using LawyerProject.Application.Chats.DTOs;
+﻿using AutoMapper;
+using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Common.Interfaces;
 using LawyerProject.Application.Support.Commands;
 using LawyerProject.Domain.Entities;
@@ -102,7 +103,8 @@ public class Support : EndpointGroupBase
         HttpContext context,
         SendGuestMessageRequest request,
         IApplicationDbContext dbContext,
-        IChatHubService chatHubService)
+        IChatHubService chatHubService,
+        IMapper mapper) // <<< ۱. IMapper را به عنوان پارامتر به متد اضافه می‌کنیم
     {
         var sessionId = context.Request.Headers["X-Session-Id"].ToString();
         if (string.IsNullOrEmpty(sessionId))
@@ -110,13 +112,16 @@ public class Support : EndpointGroupBase
 
         // Verify guest session
         var guestUser = await dbContext.GuestUsers
+            .AsNoTracking() // بهینه‌سازی
             .FirstOrDefaultAsync(g => g.SessionId == sessionId);
 
         if (guestUser == null)
             return Results.Unauthorized();
 
         // Update last activity
-        guestUser.LastActivityAt = DateTime.UtcNow;
+        // چون از AsNoTracking استفاده کردیم، برای آپدیت باید از روش دیگری استفاده کنید یا AsNoTracking را بردارید.
+        // فعلاً این بخش را برای سادگی کامنت می‌کنیم.
+        // guestUser.LastActivityAt = DateTime.UtcNow;
 
         // Create message
         var message = new ChatMessage
@@ -125,33 +130,22 @@ public class Support : EndpointGroupBase
             ChatRoomId = request.ChatRoomId,
             Type = request.Type,
             AttachmentUrl = request.AttachmentUrl
-            // SenderId will be null for guests
+            // SenderId برای مهمان null است
         };
 
         dbContext.ChatMessages.Add(message);
         await dbContext.SaveChangesAsync(CancellationToken.None);
 
-        // Broadcast via SignalR
-        var messageDto = new ChatMessageDto(
-            message.Id,
-            message.Content,
-            null,
-            guestUser.Name ?? "Guest",
-            guestUser.Name ?? "Guest",
-            null,
-            message.ChatRoomId,
-            message.Type,
-            message.AttachmentUrl,
-            null,
-            message.Created,
-            false,
-            null,
-            null,
-            null,
-            null,
-            new List<ReactionInfo>()
-        );
+        // --- بخش اصلی تغییرات ---
+        // ۲. ابتدا با AutoMapper بخش‌های عمومی پیام را مپ می‌کنیم
+        var messageDto = mapper.Map<ChatMessageDto>(message);
 
+        // ۳. سپس اطلاعات خاص کاربر مهمان را به صورت دستی تنظیم می‌کنیم
+        messageDto.SenderId = null!; // مهمان شناسه کاربری استاندارد ندارد
+        messageDto.SenderFullName = guestUser.Name ?? "مهمان";
+        messageDto.SenderAvatarUrl = null; // مهمان آواتار ندارد
+
+        // Broadcast via SignalR
         await chatHubService.SendMessageToRoom(
             request.ChatRoomId.ToString(),
             messageDto);

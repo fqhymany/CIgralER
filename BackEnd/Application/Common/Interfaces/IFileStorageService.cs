@@ -9,6 +9,15 @@ public interface IFileStorageService
         string contentType,
         CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteFileAsync(string fileUrl, CancellationToken cancellationToken = default);
-    Task<Stream> DownloadFileAsync(string fileUrl, CancellationToken cancellationToken = default);
+    Task<(Stream Stream, string ContentType, string FileName)> DownloadFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteFileAsync(
+        string filePath,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> FileExistsAsync(
+        string filePath,
+        CancellationToken cancellationToken = default);
 }

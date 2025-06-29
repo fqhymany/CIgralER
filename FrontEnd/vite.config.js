@@ -43,6 +43,11 @@ export default defineConfig({
         secure: false,
         changeOrigin: true,
       },
+      '/uploads': {
+        target: 'https://localhost:5001',
+        secure: false,
+        changeOrigin: true,
+      },
     },
   },
   build: {

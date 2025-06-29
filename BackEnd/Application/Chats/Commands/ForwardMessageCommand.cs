@@ -1,170 +1,109 @@
-﻿// File: BackEnd/Commands/ForwardMessageCommand.cs
+﻿using AutoMapper; // <<< اضافه کنید
 using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Common.Interfaces;
 using LawyerProject.Domain.Entities;
-using LawyerProject.Domain.Enums; // For MessageType
+using LawyerProject.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LawyerProject.Application.Chats.Commands;
 
-public record ForwardMessageCommand(
-    int OriginalMessageId,
-    int TargetChatRoomId
-// We will use the current user as the forwarder.
-) : IRequest<ChatMessageDto>; // Returns the DTO of the new, forwarded message
+public record ForwardMessageCommand(int OriginalMessageId, int TargetChatRoomId) : IRequest<ChatMessageDto>;
 
 public class ForwardMessageCommandHandler : IRequestHandler<ForwardMessageCommand, ChatMessageDto>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IUser _user; // To identify the forwarder
+    private readonly IUser _user;
     private readonly IChatHubService _chatHubService;
-    // private readonly IMediator _mediator; // If SendMessageCommand is called internally
+    private readonly IMapper _mapper; // <<< ۱. تزریق IMapper
 
-    public ForwardMessageCommandHandler(IApplicationDbContext context, IUser user, IChatHubService chatHubService /*, IMediator mediator*/)
+    public ForwardMessageCommandHandler(IApplicationDbContext context, IUser user, IChatHubService chatHubService, IMapper mapper) // <<< ۲. اضافه کردن به کانستراکتور
     {
         _context = context;
         _user = user;
         _chatHubService = chatHubService;
-        // _mediator = mediator;
+        _mapper = mapper; // <<< ۳. مقداردهی اولیه
     }
 
     public async Task<ChatMessageDto> Handle(ForwardMessageCommand request, CancellationToken cancellationToken)
     {
-        var forwarderUserId = _user.Id;
-        if (string.IsNullOrEmpty(forwarderUserId))
-        {
-            throw new UnauthorizedAccessException("User is not authenticated to forward a message.");
-        }
+        var forwarderUserId = _user.Id ?? throw new UnauthorizedAccessException("User not authenticated.");
 
-        var forwarderUser = await _context.Users.FindAsync(new object[] { forwarderUserId }, cancellationToken);
-        if (forwarderUser == null)
-        {
-            throw new KeyNotFoundException("Forwarder user not found.");
-        }
-
+        // --- بخش ۱: خواندن اطلاعات اولیه ---
         var originalMessage = await _context.ChatMessages
-            .Include(m => m.Sender) // We might need original sender's name
-            .FirstOrDefaultAsync(m => m.Id == request.OriginalMessageId, cancellationToken);
-
-        if (originalMessage == null)
-        {
-            throw new KeyNotFoundException($"Original message with Id {request.OriginalMessageId} not found.");
-        }
+            .AsNoTracking()
+            .Include(m => m.Sender)
+            .FirstOrDefaultAsync(m => m.Id == request.OriginalMessageId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Original message with Id {request.OriginalMessageId} not found.");
 
         var targetChatRoom = await _context.ChatRooms
-            .Include(cr => cr.Members)
-            .FirstOrDefaultAsync(cr => cr.Id == request.TargetChatRoomId, cancellationToken);
+            .AsNoTracking()
+            .Include(cr => cr.Members).ThenInclude(m => m.User) // Include کامل برای مپینگ
+            .FirstOrDefaultAsync(cr => cr.Id == request.TargetChatRoomId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Target chat room with Id {request.TargetChatRoomId} not found.");
 
-        if (targetChatRoom == null)
-        {
-            throw new KeyNotFoundException($"Target chat room with Id {request.TargetChatRoomId} not found.");
-        }
-
-        // Check if the forwarder is a member of the target chat room
         if (!targetChatRoom.Members.Any(m => m.UserId == forwarderUserId))
-        {
             throw new UnauthorizedAccessException("User is not a member of the target chat room.");
-        }
 
-        // Create new message content indicating it's forwarded
-        // Option 1: Prepend text
-        string forwardedContent = $"[فوروارد شده از: {originalMessage.Sender.UserName}]\n{originalMessage.Content}";
-        if (originalMessage.Type != MessageType.Text && !string.IsNullOrEmpty(originalMessage.Content))
-        { // If original message had content with attachment
-            forwardedContent = $"[فوروارد شده از: {originalMessage.Sender.UserName}]\n{originalMessage.Content}";
-        }
-        else if (originalMessage.Type != MessageType.Text && string.IsNullOrEmpty(originalMessage.Content))
-        {
-            forwardedContent = $"[فوروارد شده از: {originalMessage.Sender.UserName}]";
-        }
-
-
-        // Option 2: Use a specific MessageType if you add MessageType.Forwarded (more complex)
+        // --- بخش ۲: ایجاد پیام فوروارد شده ---
+        string forwardedContent = $"[هدایت شده از: {originalMessage.Sender.FirstName} {originalMessage.Sender.LastName}]\n{originalMessage.Content}";
 
         var forwardedMessage = new ChatMessage
         {
             Content = forwardedContent,
-            SenderId = forwarderUserId, // The user who forwards it is the sender in the target room
+            SenderId = forwarderUserId,
             ChatRoomId = request.TargetChatRoomId,
-            Type = originalMessage.Type, // Keep the original type for attachments
-            AttachmentUrl = originalMessage.AttachmentUrl, // Copy attachment
-            // AttachmentType = originalMessage.AttachmentType, // Copy attachment type
-            // ReplyToMessageId = null, // Forwarded messages usually don't reply to something in the target room
-            Created = DateTime.UtcNow // Set new creation time
+            Type = originalMessage.Type,
+            AttachmentUrl = originalMessage.AttachmentUrl,
+            Created = DateTime.UtcNow
         };
 
         _context.ChatMessages.Add(forwardedMessage);
         await _context.SaveChangesAsync(cancellationToken);
 
-        // DTO for the newly created forwarded message
-        var messageDto = new ChatMessageDto(
-            forwardedMessage.Id,
-            forwardedMessage.Content,
-            forwardedMessage.SenderId,
-            $" {forwarderUser.FirstName} {forwarderUser.LastName}",
-            $"{forwarderUser.FirstName} {forwarderUser.LastName}",  // Added SenderFullName
-            forwarderUser.Avatar,
-            forwardedMessage.ChatRoomId,
-            forwardedMessage.Type,
-            forwardedMessage.AttachmentUrl,
-            null, // No reply for forwarded message
-            forwardedMessage.Created,
-            false, // Not edited
-            null,  // No edit date
-            null, null, null, // No replied message info for a new forwarded message
-            new List<ReactionInfo>() // No reactions initially
-        );
+        // --- بخش ۳: ساخت DTO و ارسال نوتیفیکیشن پیام جدید ---
 
-        // Send the new (forwarded) message to the target room
+        // پیام را مجدداً با Sender آن می‌خوانیم تا بتوانیم به DTO مپ کنیم
+        var messageToNotify = await _context.ChatMessages
+            .AsNoTracking()
+            .Include(m => m.Sender)
+            .FirstAsync(m => m.Id == forwardedMessage.Id, cancellationToken);
+
+        var messageDto = _mapper.Map<ChatMessageDto>(messageToNotify);
         await _chatHubService.SendMessageToRoom(request.TargetChatRoomId.ToString(), messageDto);
 
-        // Update the target chat room's last message info for all its members
-        var targetRoomMembers = await _context.ChatRoomMembers
-                                        .Where(m => m.ChatRoomId == request.TargetChatRoomId)
-                                        .Include(m => m.User)
-                                        .ToListAsync(cancellationToken);
-
-        foreach (var member in targetRoomMembers)
+        // --- بخش ۴: آپدیت و ارسال وضعیت جدید چت‌روم ---
+        foreach (var member in targetChatRoom.Members)
         {
-            if (member.UserId == null) continue;
-            // Calculate unread count for this member in the target room
-            int unreadCount = await _context.ChatMessages
+            if (string.IsNullOrEmpty(member.UserId)) continue;
+
+            var roomUpdateDto = _mapper.Map<ChatRoomDto>(targetChatRoom);
+
+            // سفارشی‌سازی DTO برای هر کاربر
+            roomUpdateDto.UnreadCount = await _context.ChatMessages
                 .CountAsync(m => m.ChatRoomId == request.TargetChatRoomId &&
                                  m.SenderId != member.UserId &&
-                                 m.Id > (member.LastReadMessageId ?? 0),
-                                 cancellationToken);
+                                 m.Id > (member.LastReadMessageId ?? 0), cancellationToken);
 
-            string roomNameForMember = targetChatRoom.Name;
-            string? roomAvatarForMember = targetChatRoom.Avatar;
+            // آپدیت آخرین پیام
+            var forwarderUser = targetChatRoom.Members.First(m => m.UserId == forwarderUserId).User;
+            roomUpdateDto.LastMessageContent = forwardedMessage.Content;
+            roomUpdateDto.LastMessageTime = forwardedMessage.Created;
+            roomUpdateDto.LastMessageSenderName = $"{forwarderUser.FirstName} {forwarderUser.LastName}";
 
-            if (!targetChatRoom.IsGroup && targetChatRoom.Members.Count >= 2)
+            if (!targetChatRoom.IsGroup)
             {
-                var otherUserInChat = targetChatRoom.Members.FirstOrDefault(m => m.UserId != member.UserId && m.User != null)?.User;
-                if (otherUserInChat != null)
+                var otherUser = targetChatRoom.Members.FirstOrDefault(m => m.UserId != member.UserId)?.User;
+                if (otherUser != null)
                 {
-                    roomNameForMember = otherUserInChat.UserName!;
-                    roomAvatarForMember = otherUserInChat.Avatar;
+                    roomUpdateDto.Name = $"{otherUser.FirstName} {otherUser.LastName}";
+                    roomUpdateDto.Avatar = otherUser.Avatar;
                 }
             }
 
-            var roomUpdateDto = new ChatRoomDto(
-                targetChatRoom.Id,
-                roomNameForMember,
-                targetChatRoom.Description,
-                targetChatRoom.IsGroup,
-                roomAvatarForMember,
-                targetChatRoom.Created,
-                targetChatRoom.ChatRoomType,
-                await _context.ChatMessages.CountAsync(m => m.ChatRoomId == targetChatRoom.Id, cancellationToken),
-                forwardedMessage.Content.Length > 50 ? forwardedMessage.Content.Substring(0, 50) + "..." : forwardedMessage.Content,
-                forwardedMessage.Created,
-                forwarderUser.UserName!,
-                unreadCount
-            );
             await _chatHubService.SendChatRoomUpdateToUser(member.UserId, roomUpdateDto);
         }
 
-        return messageDto;
+        return messageDto; // بازگرداندن DTO پیام فوروارد شده
     }
 }

@@ -28,7 +28,8 @@ export const resetInactivityTimer = () => {
     const {token} = getAuthTokens();
     if (token) {
       clearAuthTokens();
-      window.location.href = '/app/login';
+      const currentPath = window.location.pathname;
+      window.location.href = `/Home/login?returnUrl=${encodeURIComponent(currentPath)}`;
     }
   }, INACTIVITY_TIME);
 };

@@ -40,6 +40,7 @@ public class ApplicationDbContext : IdentityDbContext<User, Role, string, Identi
     public DbSet<UserConnection> UserConnections => Set<UserConnection>();
     public DbSet<GuestUser> GuestUsers => Set<GuestUser>();
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
+    public DbSet<ChatFileMetadata> ChatFileMetadatas => Set<ChatFileMetadata>();
 
 
     public DbSet<TicketReply> TicketReplies { get; set; } = null!;

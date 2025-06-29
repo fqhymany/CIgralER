@@ -1,9 +1,10 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import {Navigate, useLocation} from 'react-router-dom';
+import {useAuth} from '../contexts/AuthContext';
 
-const ProtectedRoute = ({ children, requiredRole }) => {
-  const { user, isLoading } = useAuth();
+const ProtectedRoute = ({children, requiredRole}) => {
+  const {user, isLoading} = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -16,7 +17,8 @@ const ProtectedRoute = ({ children, requiredRole }) => {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // ذخیره مسیر فعلی برای بازگشت بعد از لاگین
+    return <Navigate to={`/login?returnUrl=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
   if (requiredRole && !(user.roles?.includes(requiredRole) || user.roles?.includes('Admin'))) {

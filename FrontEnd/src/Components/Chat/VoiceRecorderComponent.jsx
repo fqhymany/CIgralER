@@ -1,7 +1,7 @@
 import React, {useState, useRef, useEffect} from 'react';
-import {Mic, Square, Send, X, Play, Pause} from 'lucide-react';
-import {chatApi, fileHelpers, MessageType} from '../../services/chatApi';
-
+import {BsMic, BsStopFill, BsSend, BsX, BsPlayFill, BsPauseFill} from 'react-icons/bs';
+import {chatApi, MessageType} from '../../services/chatApi';
+import {Button} from 'react-bootstrap';
 const VoiceRecorderComponent = ({onVoiceRecorded, disabled, chatRoomId}) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -206,13 +206,13 @@ const VoiceRecorderComponent = ({onVoiceRecorded, disabled, chatRoomId}) => {
   if (isRecording) {
     return (
       <div className="flex items-center gap-2 bg-red-50 rounded-lg p-2">
-        <button onClick={stopRecording} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition" title="Stop recording">
-          <Square className="w-4 h-4" />
-        </button>
+        <Button variant="link" onClick={stopRecording} className="p-2 bg-red-200 rounded-full hover:bg-red-300 transition border-0" title="Stop recording">
+          <BsStopFill style={{color: '#d32f2f'}} className="w-5 h-5" />
+        </Button>
 
-        <button onClick={pauseResumeRecording} className="p-2 bg-gray-500 text-white rounded-full hover:bg-gray-600 transition" title={isPaused ? 'Resume' : 'Pause'}>
-          {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-        </button>
+        <Button variant="link" onClick={pauseResumeRecording} className="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition border-0" title={isPaused ? 'Resume' : 'Pause'}>
+          {isPaused ? <BsPlayFill style={{color: '#1976d2'}} className="w-5 h-5" /> : <BsPauseFill style={{color: '#1976d2'}} className="w-5 h-5" />}
+        </Button>
 
         <div className="flex items-center gap-2 px-3">
           <div className="flex gap-1">
@@ -231,9 +231,9 @@ const VoiceRecorderComponent = ({onVoiceRecorded, disabled, chatRoomId}) => {
     return (
       <div className="absolute bottom-12 left-0 right-0 bg-white shadow-lg rounded-lg p-4 border mx-4">
         <div className="flex items-center gap-3">
-          <button onClick={togglePlayback} className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition" disabled={isUploading}>
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          </button>
+          <Button variant="link" onClick={togglePlayback} className="p-2 bg-blue-100 rounded-full hover:bg-blue-200 transition border-0" disabled={isUploading}>
+            {isPlaying ? <BsPauseFill style={{color: '#1976d2'}} className="w-5 h-5" /> : <BsPlayFill style={{color: '#1976d2'}} className="w-5 h-5" />}
+          </Button>
 
           <div className="flex-1">
             <audio
@@ -273,13 +273,13 @@ const VoiceRecorderComponent = ({onVoiceRecorded, disabled, chatRoomId}) => {
             </div>
           ) : (
             <>
-              <button onClick={sendVoiceMessage} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition" title="Send voice message" disabled={!chatRoomId}>
-                <Send className="w-4 h-4" />
-              </button>
+              <Button variant="link" onClick={sendVoiceMessage} className="p-2 bg-green-100 rounded-full hover:bg-green-200 transition border-0" title="Send voice message" disabled={!chatRoomId}>
+                <BsSend style={{color: '#388e3c'}} className="w-5 h-5" />
+              </Button>
 
-              <button onClick={resetRecording} className="p-2 hover:bg-gray-100 rounded-full transition" title="Cancel" disabled={isUploading}>
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
+              <Button variant="link" onClick={resetRecording} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition border-0" title="Cancel" disabled={isUploading}>
+                <BsX style={{color: '#757575'}} className="w-5 h-5" />
+              </Button>
             </>
           )}
         </div>
@@ -289,9 +289,9 @@ const VoiceRecorderComponent = ({onVoiceRecorded, disabled, chatRoomId}) => {
 
   // Default UI
   return (
-    <button onClick={startRecording} disabled={disabled} className="p-2 hover:bg-gray-100 rounded-lg transition disabled:opacity-50" title="Record voice message">
-      <Mic className="w-5 h-5 text-gray-500" />
-    </button>
+    <Button variant="link" onClick={startRecording} disabled={disabled} className="p-2 hover:bg-gray-100 rounded-lg transition disabled:opacity-50 border-0" title="پیام صوتی">
+      <BsMic size={20} className="w-5 h-5" />
+    </Button>
   );
 };
 
@@ -319,6 +319,9 @@ export const VoiceMessagePlayer = ({audioUrl, duration}) => {
     const handleEnded = () => {
       setIsPlaying(false);
       setCurrentTime(0);
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+      }
       if (progressRef.current) {
         progressRef.current.style.width = '0%';
       }
@@ -367,9 +370,9 @@ export const VoiceMessagePlayer = ({audioUrl, duration}) => {
 
   return (
     <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-3 min-w-[280px]">
-      <button onClick={togglePlayback} className="p-2 bg-white rounded-full hover:bg-gray-200 transition flex-shrink-0">
-        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-      </button>
+      <Button variant="link" onClick={togglePlayback} className="p-2 bg-white rounded-full hover:bg-gray-200 transition flex-shrink-0 border-0">
+        {isPlaying ? <BsPauseFill style={{color: '#1976d2'}} className="w-5 h-5" /> : <BsPlayFill style={{color: '#1976d2'}} className="w-5 h-5" />}
+      </Button>
 
       <div className="flex-1">
         <div className="bg-gray-300 rounded-full h-1.5 cursor-pointer relative" onClick={handleProgressClick}>

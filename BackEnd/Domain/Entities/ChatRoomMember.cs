@@ -1,6 +1,6 @@
 ﻿namespace LawyerProject.Domain.Entities;
 
-public class ChatRoomMember:BaseAuditableEntity
+public class ChatRoomMember : BaseAuditableEntity
 {
     public string? UserId { get; set; }
     public int ChatRoomId { get; set; }

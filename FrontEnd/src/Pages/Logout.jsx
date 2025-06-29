@@ -10,7 +10,7 @@ export default function Logout() {
   useEffect(() => {
     const performLogout = async () => {
       await logout();
-      navigate('/app/login');
+      navigate('/Home/login');
     };
 
     performLogout();

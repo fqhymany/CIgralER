@@ -1,8 +1,8 @@
-﻿using System.Security.Claims;
+﻿using AutoMapper; // <<< اضافه کنید
+using AutoMapper.QueryableExtensions; // <<< اضافه کنید (برای ProjectTo)
 using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Common.Interfaces;
-using LawyerProject.Domain.Enums;
-using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore; // <<< اضافه کنید
 
 namespace LawyerProject.Application.Chats.Queries;
 
@@ -12,11 +12,13 @@ public class GetChatRoomsQueryHandler : IRequestHandler<GetChatRoomsQuery, List<
 {
     private readonly IApplicationDbContext _context;
     private readonly IUser _user;
+    private readonly IMapper _mapper; // <<< ۱. تزریق IMapper
 
-    public GetChatRoomsQueryHandler(IApplicationDbContext context, IUser user)
+    public GetChatRoomsQueryHandler(IApplicationDbContext context, IUser user, IMapper mapper) // <<< ۲. اضافه کردن به کانستراکتور
     {
         _context = context;
         _user = user;
+        _mapper = mapper; // <<< ۳. مقداردهی اولیه
     }
 
     public async Task<List<ChatRoomDto>> Handle(GetChatRoomsQuery request, CancellationToken cancellationToken)
@@ -24,89 +26,57 @@ public class GetChatRoomsQueryHandler : IRequestHandler<GetChatRoomsQuery, List<
         var userId = _user.Id;
         if (string.IsNullOrEmpty(userId))
         {
-            return new List<ChatRoomDto>(); // یا خطا، اگر کاربر باید حتما لاگین باشد
+            return new List<ChatRoomDto>();
         }
 
-        var userChatRooms = await _context.ChatRoomMembers
-            .Where(m => m.UserId == userId)
-            .Include(m => m.ChatRoom)
-                .ThenInclude(cr => cr.Members) // برای دسترسی به سایر اعضا برای نام و آواتار در چت خصوصی
-                    .ThenInclude(crm => crm.User)
-            .Include(m => m.ChatRoom)
-                .ThenInclude(cr => cr.Messages) // برای دسترسی به پیام‌ها برای آخرین پیام و تعداد
-                    .ThenInclude(msg => msg.Sender) // برای نام فرستنده آخرین پیام
-            .Select(m => m.ChatRoom)
+        // --- بخش ۱: کوئری بهینه برای خواندن تمام اطلاعات لازم ---
+        var userChatRooms = await _context.ChatRooms
+            .AsNoTracking()
+            .Where(cr => cr.Members.Any(m => m.UserId == userId)) // فقط چت‌روم‌هایی که کاربر عضو آنهاست
+            .Include(cr => cr.Members).ThenInclude(m => m.User) // برای نام و آواتار اعضا
+            .Include(cr => cr.Messages.OrderByDescending(m => m.Created).Take(50)) // خواندن ۵۰ پیام آخر برای محاسبات
+                .ThenInclude(m => m.Sender)
             .ToListAsync(cancellationToken);
 
-        var resultDtoList = new List<ChatRoomDto>();
+        // --- بخش ۲: تبدیل کل لیست انتیتی‌ها به DTO با یک خط کد ---
+        var resultDtoList = _mapper.Map<List<ChatRoomDto>>(userChatRooms);
 
-        foreach (var room in userChatRooms)
+        // --- بخش ۳: سفارشی‌سازی DTO ها با اطلاعات خاص کاربر ---
+        // این حلقه اکنون روی DTO ها اجرا می‌شود و کوئری‌های کمتری به دیتابیس می‌زند
+        foreach (var dto in resultDtoList)
         {
-            var lastMessage = room.Messages.OrderByDescending(msg => msg.Created).FirstOrDefault();
-            int totalMessages = room.Messages.Count();
+            // برای پیدا کردن انتیتی متناظر با DTO فعلی از لیست اولیه استفاده می‌کنیم
+            var originalRoom = userChatRooms.First(r => r.Id == dto.Id);
 
-            // پیدا کردن رکورد ChatRoomMember برای کاربر فعلی و این روم
-            var currentChatRoomMember = await _context.ChatRoomMembers
-                .FirstOrDefaultAsync(crm => crm.ChatRoomId == room.Id && crm.UserId == userId, cancellationToken);
+            // پیدا کردن عضویت کاربر فعلی در این روم (بدون کوئری اضافه به دیتابیس)
+            var currentUserMembership = originalRoom.Members.FirstOrDefault(m => m.UserId == userId);
 
-            int unreadCount = 0;
-            if (currentChatRoomMember != null)
+            // محاسبه تعداد خوانده نشده‌ها (با استفاده از پیام‌های لود شده در حافظه)
+            dto.UnreadCount = originalRoom.Messages
+                .Count(m => m.SenderId != userId && m.Id > (currentUserMembership?.LastReadMessageId ?? 0));
+
+            // سفارشی‌سازی نام و آواتار برای چت‌های خصوصی
+            if (!originalRoom.IsGroup && originalRoom.Members.Count >= 2)
             {
-                unreadCount = await _context.ChatMessages
-                    .CountAsync(m => m.ChatRoomId == room.Id &&
-                                     m.SenderId != userId && // پیام‌هایی که خودش نفرستاده
-                                     m.Id > (currentChatRoomMember.LastReadMessageId ?? 0), // پیام‌های جدیدتر از آخرین پیام خوانده شده
-                                     cancellationToken);
-            }
-            // else: لاگ خطا، کاربر باید عضو باشد تا اطلاعات روم را دریافت کند.
-
-            string roomName = room.Name;
-            string? roomAvatar = room.Avatar;
-
-            if (!room.IsGroup && room.Members.Count == 2)
-            {
-                var otherMemberInfo = room.Members.FirstOrDefault(m => m.UserId != userId);
-                if (otherMemberInfo?.User != null)
+                var otherMember = originalRoom.Members.FirstOrDefault(m => m.UserId != userId);
+                if (otherMember?.User != null)
                 {
-                    roomName = (otherMemberInfo.User.FirstName + " " + otherMemberInfo.User.LastName);
-                    roomAvatar = otherMemberInfo.User.Avatar;
+                    dto.Name = $"{otherMember.User.FirstName} {otherMember.User.LastName}";
+                    dto.Avatar = otherMember.User.Avatar;
                 }
             }
 
-            resultDtoList.Add(new ChatRoomDto(
-                room.Id,
-                roomName,
-                room.Description,
-                room.IsGroup,
-                roomAvatar,
-                room.Created,
-                room.ChatRoomType,
-                totalMessages,
-                lastMessage?.Content.Length > 50 ? lastMessage.Content.Substring(0, 50) + "..." : lastMessage?.Content,
-                lastMessage?.Created,
-                (lastMessage?.Sender?.FirstName + " " + lastMessage?.Sender?.LastName),
-                unreadCount
-            ));
+            // محاسبه و تنظیم اطلاعات آخرین پیام
+            var lastMessage = originalRoom.Messages.OrderByDescending(m => m.Created).FirstOrDefault();
+            if (lastMessage != null)
+            {
+                dto.LastMessageContent = lastMessage.Content;
+                dto.LastMessageTime = lastMessage.Created;
+                dto.LastMessageSenderName = $"{lastMessage.Sender.FirstName} {lastMessage.Sender.LastName}";
+            }
         }
 
-        // مرتب‌سازی نهایی لیست بر اساس زمان آخرین پیام
+        // --- بخش ۴: مرتب‌سازی و بازگرداندن نتیجه نهایی ---
         return resultDtoList.OrderByDescending(r => r.LastMessageTime ?? r.CreatedAt).ToList();
-    }
-
-    private async Task<int> GetUnreadCount(int roomId, string userId, CancellationToken cancellationToken)
-    {
-        var member = await _context.ChatRoomMembers
-            .FirstOrDefaultAsync(m => m.ChatRoomId == roomId && m.UserId == userId,
-                cancellationToken);
-
-        if (member == null)
-            return 0;
-
-        return await _context.ChatMessages
-            .CountAsync(m => m.ChatRoomId == roomId
-                             && m.SenderId != userId
-                             && m.Id > (member.LastReadMessageId ?? 0)
-                             && !m.IsDeleted,
-                cancellationToken);
     }
 }

@@ -1,5 +1,5 @@
-﻿// BackEnd/Infrastructure/Hubs/GuestChatHub.cs
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
+using AutoMapper; // <<< اضافه کنید
 using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Common.Interfaces;
 using LawyerProject.Domain.Entities;
@@ -10,22 +10,25 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LawyerProject.Infrastructure.Hubs;
 
-[AllowAnonymous] // مهم: اجازه دسترسی بدون احراز هویت
+[AllowAnonymous]
 public class GuestChatHub : Hub
 {
     private readonly IApplicationDbContext _context;
     private readonly IChatHubService _chatHubService;
+    private readonly IMapper _mapper; // <<< ۱. تزریق IMapper
     private static readonly ConcurrentDictionary<string, string> _guestConnections = new();
 
-    public GuestChatHub(IApplicationDbContext context, IChatHubService chatHubService)
+    public GuestChatHub(IApplicationDbContext context, IChatHubService chatHubService, IMapper mapper) // <<< ۲. اضافه کردن به کانستراکتور
     {
         _context = context;
         _chatHubService = chatHubService;
+        _mapper = mapper; // <<< ۳. مقداردهی اولیه
     }
 
+    // متدهای OnConnectedAsync, OnDisconnectedAsync, JoinRoom بدون تغییر باقی می‌مانند
     public override async Task OnConnectedAsync()
     {
-        // Get session ID from query string or header
+        // ... کد فعلی شما ...
         var httpContext = Context.GetHttpContext();
         var sessionId = httpContext?.Request.Query["access_token"].ToString()
             ?? httpContext?.Request.Headers["X-Session-Id"].ToString();
@@ -112,61 +115,50 @@ public class GuestChatHub : Hub
         }
     }
 
+
     public async Task SendMessage(int chatRoomId, string content)
     {
         if (!_guestConnections.TryGetValue(Context.ConnectionId, out var sessionId))
             return;
 
         var guestUser = await _context.GuestUsers
+            .AsNoTracking() // بهینه‌سازی
             .FirstOrDefaultAsync(g => g.SessionId == sessionId);
 
-        if (guestUser == null)
-            return;
+        if (guestUser == null) return;
 
-        // Verify guest has access to this room
-        var chatRoom = await _context.ChatRooms
-            .FirstOrDefaultAsync(cr => cr.Id == chatRoomId && cr.GuestIdentifier == sessionId);
+        var hasAccess = await _context.ChatRooms
+            .AnyAsync(cr => cr.Id == chatRoomId && cr.GuestIdentifier == sessionId);
 
-        if (chatRoom == null)
-            return;
+        if (!hasAccess) return;
 
-        // Create message
         var message = new ChatMessage
         {
             Content = content,
             ChatRoomId = chatRoomId,
             Type = MessageType.Text,
-            // SenderId is null for guests
+            // SenderId برای مهمان null است
         };
 
         _context.ChatMessages.Add(message);
         await _context.SaveChangesAsync(CancellationToken.None);
 
-        // Create DTO
-        var messageDto = new ChatMessageDto(
-            message.Id,
-            message.Content,
-            null, // No SenderId for guests
-            guestUser.Name ?? "Guest",
-            guestUser.Name ?? "Guest",
-            null, // No avatar
-            message.ChatRoomId,
-            message.Type,
-            null, // No attachment
-            null, // No reply
-            message.Created,
-            false,
-            null,
-            null,
-            null,
-            null,
-            new List<ReactionInfo>()
-        );
+        // --- بخش اصلی تغییرات ---
+        // ۱. ابتدا با AutoMapper بخش‌های عمومی پیام را مپ می‌کنیم
+        // چون SenderId در پیام null است، AutoMapper فیلدهای Sender... را خالی می‌گذارد
+        var messageDto = _mapper.Map<ChatMessageDto>(message);
 
-        // Broadcast to room
+        // ۲. حالا اطلاعات خاص کاربر مهمان را به صورت دستی تنظیم می‌کنیم
+        messageDto.SenderId = null!; // مهمانان شناسه کاربری ندارند
+        messageDto.SenderFullName = guestUser.Name ?? "مهمان"; // از نام مهمان استفاده می‌کنیم
+        messageDto.SenderAvatarUrl = null; // مهمان آواتار ندارد
+
+        // ۳. پیام را برای اعضای گروه ارسال می‌کنیم
         await Clients.Group(chatRoomId.ToString()).SendAsync("ReceiveMessage", messageDto);
     }
 
+    // متدهای StartTyping و StopTyping نیازی به تغییر ندارند چون از DTO دیگری استفاده می‌کنند
+    // و خطای کانستراکتور مربوط به ChatMessageDto است.
     public async Task StartTyping(string roomId)
     {
         if (!_guestConnections.TryGetValue(Context.ConnectionId, out var sessionId))

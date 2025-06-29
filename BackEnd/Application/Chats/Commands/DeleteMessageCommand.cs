@@ -1,4 +1,4 @@
-﻿// File: BackEnd/Commands/DeleteMessageCommand.cs
+﻿using AutoMapper; // <<< اضافه کنید
 using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Common.Interfaces;
 using MediatR;
@@ -6,109 +6,101 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LawyerProject.Application.Chats.Commands;
 
-public record DeleteMessageCommand(int MessageId) : IRequest<bool>; // Returns true if successful
+public record DeleteMessageCommand(int MessageId) : IRequest<bool>;
 
 public class DeleteMessageCommandHandler : IRequestHandler<DeleteMessageCommand, bool>
 {
     private readonly IApplicationDbContext _context;
     private readonly IUser _user;
     private readonly IChatHubService _chatHubService;
+    private readonly IMapper _mapper; // <<< ۱. تزریق IMapper
 
-    public DeleteMessageCommandHandler(IApplicationDbContext context, IUser user, IChatHubService chatHubService)
+    public DeleteMessageCommandHandler(IApplicationDbContext context, IUser user, IChatHubService chatHubService, IMapper mapper) // <<< ۲. اضافه کردن به کانستراکتور
     {
         _context = context;
         _user = user;
         _chatHubService = chatHubService;
+        _mapper = mapper; // <<< ۳. مقداردهی اولیه
     }
 
     public async Task<bool> Handle(DeleteMessageCommand request, CancellationToken cancellationToken)
     {
-        var userId = _user.Id;
+        var userId = _user.Id ?? throw new UnauthorizedAccessException();
+
+        // کوئری اولیه برای خواندن پیام و تمام روابط مورد نیاز
         var message = await _context.ChatMessages
-                                .Include(m => m.ChatRoom) // Include ChatRoom
-                                    .ThenInclude(cr => cr.Members) // To get members for room update
-                                        .ThenInclude(crm => crm.User)
-                                .Include(m => m.ChatRoom)
-                                    .ThenInclude(cr => cr.Messages) // To find the new last message
-                                        .ThenInclude(msg => msg.Sender)
-                                .FirstOrDefaultAsync(m => m.Id == request.MessageId, cancellationToken);
+            .Include(m => m.ChatRoom)
+                .ThenInclude(cr => cr.Members)
+                    .ThenInclude(crm => crm.User)
+            .Include(m => m.ChatRoom)
+                .ThenInclude(cr => cr.Messages.Where(msg => !msg.IsDeleted).OrderByDescending(msg => msg.Created)) // فقط پیام‌های حذف نشده
+                    .ThenInclude(msg => msg.Sender)
+            .FirstOrDefaultAsync(m => m.Id == request.MessageId, cancellationToken);
 
         if (message == null)
-        {
             throw new KeyNotFoundException("Message not found.");
-        }
 
         if (message.SenderId != userId)
-        {
             throw new UnauthorizedAccessException("You can only delete your own messages.");
-        }
 
-        var chatRoomId = message.ChatRoomId;
         var chatRoom = message.ChatRoom;
 
-        // Soft delete: mark as deleted
+        // حذف نرم پیام
         message.IsDeleted = true;
         message.Content = "[پیام حذف شد]";
         message.AttachmentUrl = null;
-        // You might want to clear other fields like AttachmentType, FileName, FileSize if they exist on ChatMessage entity
-
         await _context.SaveChangesAsync(cancellationToken);
 
-        // Notify clients that message is deleted
-        await _chatHubService.SendMessageUpdateToRoom(chatRoomId.ToString(),
-            new { MessageId = message.Id, ChatRoomId = chatRoomId, IsDeleted = true },
+        // اطلاع‌رسانی به کلاینت‌ها که این پیام حذف شده است
+        await _chatHubService.SendMessageUpdateToRoom(chatRoom.Id.ToString(),
+            new { MessageId = message.Id, ChatRoomId = chatRoom.Id, IsDeleted = true },
             "MessageDeleted");
 
-        // ---- START: Update and Broadcast ChatRoom Info ----
-        var updatedMessagesInRoom = await _context.ChatMessages
-                                            .Where(m => m.ChatRoomId == chatRoomId && !m.IsDeleted)
-                                            .OrderByDescending(m => m.Created)
-                                            .Include(m => m.Sender)
-                                            .ToListAsync(cancellationToken);
+        // =================================================================
+        // بخش اصلی: آپدیت و ارسال وضعیت جدید چت‌روم با AutoMapper
+        // =================================================================
 
-        var newLastMessage = updatedMessagesInRoom.FirstOrDefault();
+        // پیدا کردن آخرین پیام جدید از بین پیام‌هایی که از قبل خوانده‌ایم
+        var newLastMessage = chatRoom.Messages
+            .Where(m => m.Id != message.Id) // پیام حذف شده را در نظر نگیر
+            .OrderByDescending(m => m.Created)
+            .FirstOrDefault();
 
         foreach (var member in chatRoom.Members)
         {
-            if (string.IsNullOrEmpty(member.UserId) || member.User == null) continue;
+            if (string.IsNullOrEmpty(member.UserId)) continue;
 
-            int unreadCount = updatedMessagesInRoom
-                .Count(m => m.SenderId != member.UserId &&
+            // ۱. ابتدا یک DTO کامل با استفاده از AutoMapper بسازید
+            var roomUpdateDto = _mapper.Map<ChatRoomDto>(chatRoom);
+
+            // ۲. حالا اطلاعات خاص هر کاربر و اطلاعات جدید را روی DTO آپدیت کنید
+            roomUpdateDto.UnreadCount = chatRoom.Messages
+                .Count(m => m.Id != message.Id &&
+                            m.SenderId != member.UserId &&
                             m.Id > (member.LastReadMessageId ?? 0));
 
-            string roomNameForMember = chatRoom.Name;
-            string? roomAvatarForMember = chatRoom.Avatar;
+            // آپدیت اطلاعات آخرین پیام
+            roomUpdateDto.LastMessageContent = newLastMessage?.Content;
+            roomUpdateDto.LastMessageTime = newLastMessage?.Created;
+            roomUpdateDto.LastMessageSenderName = newLastMessage?.Sender != null ? $"{newLastMessage.Sender.FirstName} {newLastMessage.Sender.LastName}" : null;
+            roomUpdateDto.MessageCount = chatRoom.Messages.Count(m => !m.IsDeleted && m.Id != message.Id);
 
-            if (!chatRoom.IsGroup && chatRoom.Members.Count >= 2)
+
+            // سفارشی‌سازی نام و آواتار برای چت‌های خصوصی
+            if (!chatRoom.IsGroup)
             {
-                var otherUserInChat = chatRoom.Members.FirstOrDefault(m_other => m_other.UserId != member.UserId)?.User;
-                if (otherUserInChat != null)
+                var otherUser = chatRoom.Members.FirstOrDefault(m => m.UserId != member.UserId)?.User;
+                if (otherUser != null)
                 {
-                    roomNameForMember = $"{otherUserInChat.FirstName} {otherUserInChat.LastName}";
-                    roomAvatarForMember = otherUserInChat.Avatar;
+                    roomUpdateDto.Name = $"{otherUser.FirstName} {otherUser.LastName}";
+                    roomUpdateDto.Avatar = otherUser.Avatar;
                 }
             }
-            var lastMessageSenderFullName = newLastMessage?.Sender != null ? $"{newLastMessage.Sender.FirstName} {newLastMessage.Sender.LastName}" : null;
 
-            var roomUpdateDto = new ChatRoomDto(
-                chatRoom.Id,
-                roomNameForMember,
-                chatRoom.Description,
-                chatRoom.IsGroup,
-                roomAvatarForMember,
-                chatRoom.Created,
-                chatRoom.ChatRoomType,
-                updatedMessagesInRoom.Count, // Updated message count
-                newLastMessage?.Content.Length > 50 ? newLastMessage.Content.Substring(0, 50) + "..." : newLastMessage?.Content,
-                newLastMessage?.Created,
-                lastMessageSenderFullName, // Use FullName
-                unreadCount
-            );
+            // ۳. DTO نهایی و سفارشی‌شده را برای هر کاربر ارسال کنید
             await _chatHubService.SendChatRoomUpdateToUser(member.UserId, roomUpdateDto);
         }
-        // ---- END: Update and Broadcast ChatRoom Info ----
 
         return true;
     }
-
 }

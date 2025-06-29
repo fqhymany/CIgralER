@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useCallback, useState} from 'react';
+import React, { useRef, useEffect, useCallback, useState} from 'react';
 import {Spinner, Button} from 'react-bootstrap';
 import MessageItem from './MessageItem';
 import './Chat.css';
@@ -7,14 +7,29 @@ const MessageList = ({messages, isLoading, hasMoreMessages, onLoadMoreMessages, 
   const listRef = useRef(null);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
 
-  const scrollToBottom = useCallback(() => {
-    if (listRef.current && !isUserScrolledUp) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
+  const scrollToBottom = useCallback((smooth = false) => {
+    if (listRef.current) {
+      listRef.current.scrollTo({
+        top: listRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
+      });
     }
-  }, [isUserScrolledUp]);
+  }, []);
+
+  // تشخیص اینکه آیا کاربر نزدیک پایین است یا نه
+  const isNearBottom = useCallback(() => {
+    if (!listRef.current) return false;
+    const container = listRef.current;
+    const threshold = 100; // 100 پیکسل از پایین
+    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    // اگر پیام جدیدی اضافه شد یا چت جدید باز شد، همیشه به پایین اسکرول کن
+    const timeoutId = setTimeout(() => {
+      scrollToBottom(true); // استفاده از smooth scroll
+    }, 100);
+    return () => clearTimeout(timeoutId);
   }, [messages, scrollToBottom]);
 
   const handleScroll = useCallback(() => {
@@ -43,7 +58,7 @@ const MessageList = ({messages, isLoading, hasMoreMessages, onLoadMoreMessages, 
   const renderMessages = () => {
     let lastDate = null;
     return messages.map((message) => {
-      const messageDate = new Date(message.createdAt).toDateString();
+      const messageDate = new Date(message.timestamp).toDateString();
       const showDateHeader = messageDate !== lastDate;
       lastDate = messageDate;
 
@@ -51,7 +66,7 @@ const MessageList = ({messages, isLoading, hasMoreMessages, onLoadMoreMessages, 
         <React.Fragment key={message.id}>
           {showDateHeader && (
             <div className="message-date-header">
-              <span className="message-date-header-badge">{formatDateHeader(message.createdAt)}</span>
+              <span className="message-date-header-badge">{formatDateHeader(message.timestamp)}</span>
             </div>
           )}
           <MessageItem message={message} isGroupChat={isGroupChat} />
@@ -61,7 +76,7 @@ const MessageList = ({messages, isLoading, hasMoreMessages, onLoadMoreMessages, 
   };
 
   return (
-    <div ref={listRef} className="message-list-container hide-scrollbar" onScroll={handleScroll}>
+    <div ref={listRef} className="message-list-container hide-scrollbar p-2" onScroll={handleScroll}>
       {isLoading && messages.length === 0 ? (
         <div className="flex-grow-1 d-flex align-items-center justify-content-center">
           <Spinner animation="border" />

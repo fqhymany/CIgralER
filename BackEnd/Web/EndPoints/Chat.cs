@@ -1,5 +1,6 @@
 ﻿using System.Linq;
 using System.Security.Claims;
+using AutoMapper;
 using LawyerProject.Application.Chats.Commands;
 using LawyerProject.Application.Chats.DTOs;
 using LawyerProject.Application.Chats.Queries;
@@ -7,6 +8,7 @@ using LawyerProject.Application.Common.Interfaces;
 using LawyerProject.Domain.Entities;
 using LawyerProject.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,6 +38,36 @@ public class Chat : EndpointGroupBase
         // User endpoints
         chatApi.MapGet("/users/online", GetOnlineUsers);
         chatApi.MapGet("/users/search", SearchUsers);
+
+        // File upload endpoint
+        chatApi.MapPost("/upload", UploadFile)
+            .DisableAntiforgery()
+            .Accepts<IFormFile>("multipart/form-data");
+    }
+
+    [IgnoreAntiforgeryToken]
+    public async Task<Results<Ok<ChatFileUploadResult>, BadRequest<string>>> UploadFile(
+        ISender sender,
+        IFormFile file,
+        [FromForm] int chatRoomId,
+        [FromForm] MessageType type,
+        HttpContext httpContext)
+    {
+        if (file == null || file.Length == 0)
+            return TypedResults.BadRequest("No file was uploaded");
+
+        var command = new UploadChatFileCommand
+        {
+            ChatRoomId = chatRoomId,
+            File = file,
+            Type = type
+        };
+
+        var result = await sender.Send(command);
+        if (!result.Succeeded)
+            return TypedResults.BadRequest(result.Error ?? "Upload failed");
+
+        return TypedResults.Ok(result.Data!);
     }
 
     private static async Task<IResult> GetUnreadCount(
@@ -63,50 +95,68 @@ public class Chat : EndpointGroupBase
     private static async Task<IResult> GetChatRooms(
     IApplicationDbContext context,
     IUser user,
+    IMapper mapper, // <<< ۱. IMapper را به عنوان پارامتر اضافه کنید
     [FromQuery] int page = 1,
     [FromQuery] int pageSize = 20)
     {
         var userId = user.Id;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Results.Unauthorized();
+        }
 
-        var query = from room in context.ChatRooms
-                    join member in context.ChatRoomMembers on room.Id equals member.ChatRoomId
-                    where member.UserId == userId
-                    select new
-                    {
-                        Room = room,
-                        Member = member,
-                        LastMessage = context.ChatMessages
-                            .Where(m => m.ChatRoomId == room.Id && !m.IsDeleted)
-                            .OrderByDescending(m => m.Created)
-                            .FirstOrDefault(),
-                        UnreadCount = context.ChatMessages
-                            .Count(m => m.ChatRoomId == room.Id &&
-                                        m.SenderId != userId &&
-                                        !m.IsDeleted &&
-                                        (member.LastReadMessageId == null || m.Id > member.LastReadMessageId))
-                    };
+        // ۲. کوئری شما بسیار قدرتمند است و بخش زیادی از آن را نگه می‌داریم
+        // این کوئری با استفاده از select new به یک نوع ناشناس، از مشکل N+1 جلوگیری می‌کند
+        var query = context.ChatRooms
+            .Where(cr => cr.Members.Any(m => m.UserId == userId))
+            .Select(room => new
+            {
+                // تمام اطلاعات مورد نیاز را در یک آبجکت ناشناس جمع‌آوری می‌کنیم
+                RoomEntity = room,
+                CurrentUserMembership = room.Members.FirstOrDefault(m => m.UserId == userId),
+                OtherUser = !room.IsGroup ? room.Members.FirstOrDefault(m => m.UserId != userId)!.User : null,
+                LastMessage = room.Messages
+                    .Where(m => !m.IsDeleted)
+                    .OrderByDescending(m => m.Created)
+                    .FirstOrDefault()
+            });
 
-        var rooms = await query
-            .OrderByDescending(x => x.LastMessage != null ? x.LastMessage.Created : x.Room.Created)
+        // ۳. اجرای کوئری و دریافت نتایج
+        var intermediateResults = await query
+            .OrderByDescending(x => x.LastMessage != null ? x.LastMessage.Created : x.RoomEntity.Created)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new ChatRoomDto(
-                x.Room.Id,
-                x.Room.Name,
-                x.Room.Description,
-                x.Room.IsGroup,
-                x.Room.Avatar,
-                x.Room.Created,
-                x.Room.ChatRoomType, // اضافه کردن ChatRoomType
-                context.ChatMessages.Count(m => m.ChatRoomId == x.Room.Id),
-                x.LastMessage != null ? x.LastMessage.Content : null,
-                x.LastMessage != null ? x.LastMessage.Created : null,
-                (x.LastMessage != null ? x.LastMessage.SenderId : null)!,
-                x.UnreadCount
-            ))
             .ToListAsync();
 
-        return Results.Ok(rooms);
+        // ۴. تبدیل نتایج میانی به DTO نهایی با کمک AutoMapper
+        var finalDtoList = intermediateResults.Select(item =>
+        {
+            // ابتدا مپینگ پایه را با AutoMapper انجام می‌دهیم
+            var dto = mapper.Map<ChatRoomDto>(item.RoomEntity);
+
+            // سپس اطلاعات محاسبه‌شده و سفارشی را روی DTO تنظیم می‌کنیم
+            dto.LastMessageContent = item.LastMessage?.Content;
+            dto.LastMessageTime = item.LastMessage?.Created;
+            dto.LastMessageSenderName = item.LastMessage?.Sender != null ? $"{item.LastMessage.Sender.FirstName} {item.LastMessage.Sender.LastName}" : null;
+
+            dto.UnreadCount = context.ChatMessages.Count(m =>
+                m.ChatRoomId == item.RoomEntity.Id &&
+                m.SenderId != userId &&
+                !m.IsDeleted &&
+                (item.CurrentUserMembership!.LastReadMessageId == null || m.Id > item.CurrentUserMembership.LastReadMessageId)
+            );
+
+            // سفارشی‌سازی نام و آواتار برای چت‌های خصوصی
+            if (!dto.IsGroup && item.OtherUser != null)
+            {
+                dto.Name = $"{item.OtherUser.FirstName} {item.OtherUser.LastName}";
+                dto.Avatar = item.OtherUser.Avatar;
+            }
+
+            return dto;
+        }).ToList();
+
+        return Results.Ok(finalDtoList);
     }
 
     private static async Task<IResult> GetChatMessages(

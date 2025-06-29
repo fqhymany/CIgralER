@@ -4,6 +4,8 @@ using LawyerProject.Application.Common.Interfaces;
 using LawyerProject.Domain.Entities;
 using LawyerProject.Domain.Enums;
 using Microsoft.AspNetCore.Http;
+using AutoMapper; // <<< اضافه کنید
+using Microsoft.EntityFrameworkCore; // <<< اضافه کنید
 
 namespace LawyerProject.Application.Chats.Commands;
 
@@ -22,74 +24,54 @@ public class CreateChatRoomCommandHandler : IRequestHandler<CreateChatRoomComman
     private readonly IApplicationDbContext _context;
     private readonly IUser _user;
     private readonly IChatHubService _chatHubService;
+    private readonly IMapper _mapper; // <<< ۱. تزریق IMapper
 
-
-    public CreateChatRoomCommandHandler(IApplicationDbContext context, IUser user, IChatHubService chatHubService)
+    public CreateChatRoomCommandHandler(IApplicationDbContext context, IUser user, IChatHubService chatHubService, IMapper mapper) // <<< ۲. اضافه کردن به کانستراکتور
     {
         _context = context;
         _user = user;
         _chatHubService = chatHubService;
+        _mapper = mapper; // <<< ۳. مقداردهی اولیه
     }
 
     public async Task<ChatRoomDto> Handle(CreateChatRoomCommand request, CancellationToken cancellationToken)
     {
-        var creatorUserId = _user.Id;
-        string roomNameForCreator = request.Name;
+        var creatorUserId = _user.Id ?? throw new UnauthorizedAccessException("User is not authenticated.");
         var activeRegionId = _user.RegionId;
 
-        if (creatorUserId == null)
-        {
-            throw new UnauthorizedAccessException("User is not authenticated to create a chat room.");
-        }
-
-        if (!request.IsGroup && request.MemberIds != null && request.MemberIds.Count == 1)
+        // =================================================================
+        // بخش ۱: بررسی وجود چت خصوصی از قبل
+        // =================================================================
+        if (!request.IsGroup && request.MemberIds?.Count == 1)
         {
             var otherMemberId = request.MemberIds.First();
             if (creatorUserId == otherMemberId)
-            {
                 throw new InvalidOperationException("Cannot create a private chat with yourself.");
-            }
 
             var existingRoom = await _context.ChatRooms
-                .Include(cr => cr.Members)
-                .ThenInclude(m => m.User)
-                .Include(cr => cr.Messages.OrderByDescending(msg => msg.Created).Take(1))
-                .ThenInclude(msg => msg.Sender)
-                .FirstOrDefaultAsync(cr =>
-                    !cr.IsGroup &&
-                    cr.RegionId == activeRegionId && // Check region
-                    cr.Members.Count(m => m.UserId == creatorUserId || m.UserId == otherMemberId) == 2 &&
-                    cr.Members.All(m => m.UserId == creatorUserId || m.UserId == otherMemberId),
-                    cancellationToken);
+                .AsNoTracking()
+                .Include(cr => cr.Members).ThenInclude(m => m.User)
+                .FirstOrDefaultAsync(cr => !cr.IsGroup && cr.RegionId == activeRegionId &&
+                                       cr.Members.All(m => m.UserId == creatorUserId || m.UserId == otherMemberId) &&
+                                       cr.Members.Count == 2, cancellationToken);
 
             if (existingRoom != null)
             {
-                // Room already exists, return its DTO
-                var otherUser = existingRoom.Members.FirstOrDefault(m => m.UserId == otherMemberId)?.User;
-                var lastMessage = existingRoom.Messages.FirstOrDefault();
-                int unreadCount = await _context.ChatMessages
-                   .CountAsync(m => m.ChatRoomId == existingRoom.Id &&
-                                    m.SenderId != creatorUserId &&
-                                    m.Id > (existingRoom.Members.FirstOrDefault(mem => mem.UserId == creatorUserId)!.LastReadMessageId ?? 0),
-                                    cancellationToken);
+                // چت از قبل وجود دارد. فقط آن را به DTO تبدیل کرده و برگردانید
+                var roomDto = _mapper.Map<ChatRoomDto>(existingRoom);
+                var otherUser = existingRoom.Members.First(m => m.UserId != creatorUserId).User;
 
-                return new ChatRoomDto(
-                    existingRoom.Id,
-                    otherUser?.FirstName + " " + otherUser?.LastName ?? existingRoom.Name, // Name of the room for creator is the other user's name
-                    existingRoom.Description,
-                    existingRoom.IsGroup,
-                    otherUser?.Avatar, // Avatar of the other user
-                    existingRoom.Created,
-                    existingRoom.ChatRoomType,
-                    await _context.ChatMessages.CountAsync(m => m.ChatRoomId == existingRoom.Id, cancellationToken),
-                    lastMessage?.Content.Length > 50 ? lastMessage.Content.Substring(0, 50) + "..." : lastMessage?.Content,
-                    lastMessage?.Created,
-                    lastMessage?.Sender?.FirstName + " " + lastMessage?.Sender?.LastName,
-                    unreadCount
-                );
+                // سفارشی‌سازی نام و آواتار برای نمایش در فرانت‌اند
+                roomDto.Name = $"{otherUser.FirstName} {otherUser.LastName}";
+                roomDto.Avatar = otherUser.Avatar;
+
+                return roomDto;
             }
         }
 
+        // =================================================================
+        // بخش ۲: ایجاد چت‌روم جدید
+        // =================================================================
         var chatRoom = new ChatRoom
         {
             Name = request.Name,
@@ -99,115 +81,69 @@ public class CreateChatRoomCommandHandler : IRequestHandler<CreateChatRoomComman
             RegionId = activeRegionId,
         };
 
+        // افزودن اعضا به چت‌روم
+        var allMemberIds = new List<string>(request.MemberIds ?? new List<string>());
+        if (!allMemberIds.Contains(creatorUserId))
+        {
+            allMemberIds.Add(creatorUserId);
+        }
+
+        foreach (var memberId in allMemberIds)
+        {
+            chatRoom.Members.Add(new ChatRoomMember
+            {
+                UserId = memberId,
+                Role = (memberId == creatorUserId) ? ChatRole.Owner : ChatRole.Member
+            });
+        }
+
         _context.ChatRooms.Add(chatRoom);
         await _context.SaveChangesAsync(cancellationToken);
 
-        var memberIdsToNotify = new List<string>();
+        // =================================================================
+        // بخش ۳: خواندن مجدد و ارسال نوتیفیکیشن
+        // =================================================================
+        // برای اینکه تمام روابط (Members.User) را داشته باشیم، آن را مجدداً می‌خوانیم
+        var newlyCreatedRoom = await _context.ChatRooms
+            .AsNoTracking()
+            .Include(r => r.Members).ThenInclude(m => m.User)
+            .FirstAsync(r => r.Id == chatRoom.Id, cancellationToken);
 
-        if (!string.IsNullOrEmpty(creatorUserId))
+        // برای هر عضو، یک DTO سفارشی ساخته و از طریق هاب ارسال می‌کنیم
+        foreach (var member in newlyCreatedRoom.Members)
         {
-            var creatorMember = new ChatRoomMember
+            var roomDtoForMember = _mapper.Map<ChatRoomDto>(newlyCreatedRoom);
+
+            if (!newlyCreatedRoom.IsGroup)
             {
-                UserId = creatorUserId,
-                ChatRoomId = chatRoom.Id,
-                Role = ChatRole.Owner
-            };
-            _context.ChatRoomMembers.Add(creatorMember);
-        }
-
-        if (request.MemberIds != null)
-        {
-            foreach (var memberId in request.MemberIds)
-            {
-                if (memberId == creatorUserId && !request.IsGroup) continue; // Skip self if it's a private chat
-
-                var userExists = await _context.Users.AnyAsync(u => u.Id == memberId, cancellationToken);
-                if (!userExists)
+                // برای چت خصوصی، نام و آواتار طرف مقابل را نمایش می‌دهیم
+                var otherUser = newlyCreatedRoom.Members.FirstOrDefault(m => m.UserId != member.UserId)?.User;
+                if (otherUser != null)
                 {
-                    // Log or handle missing user
-                    continue;
-                }
-
-                var member = new ChatRoomMember
-                {
-                    UserId = memberId,
-                    ChatRoomId = chatRoom.Id,
-                    Role = ChatRole.Member
-                };
-                _context.ChatRoomMembers.Add(member);
-                if (memberId != creatorUserId) // Only notify others
-                {
-                    memberIdsToNotify.Add(memberId);
+                    roomDtoForMember.Name = $"{otherUser.FirstName} {otherUser.LastName}";
+                    roomDtoForMember.Avatar = otherUser.Avatar;
                 }
             }
+            // برای چت گروهی، نام و آواتار خود گروه نمایش داده می‌شود که AutoMapper به درستی انجام داده است.
+
+            if (member.UserId != null)
+            {
+                await _chatHubService.SendChatRoomUpdateToUser(member.UserId, roomDtoForMember);
+            }
         }
-        await _context.SaveChangesAsync(cancellationToken);
 
-
-        string finalRoomNameForCreator = request.Name;
-        string? finalRoomAvatarForCreator = null;
-
-        if (!chatRoom.IsGroup && request.MemberIds?.Count == 1 && !string.IsNullOrEmpty(creatorUserId))
+        // DTO نهایی را برای بازگشت به فرانت‌اند ایجاد می‌کنیم
+        var finalDtoForRequester = _mapper.Map<ChatRoomDto>(newlyCreatedRoom);
+        if (!newlyCreatedRoom.IsGroup)
         {
-            var otherMemberId = request.MemberIds.First(id => id != creatorUserId); // Ensure it's the other member
-            var otherUser = await _context.Users.FindAsync(new object[] { otherMemberId! }, cancellationToken);
+            var otherUser = newlyCreatedRoom.Members.FirstOrDefault(m => m.UserId != creatorUserId)?.User;
             if (otherUser != null)
             {
-                finalRoomNameForCreator = (otherUser.FirstName + " " + otherUser.LastName);
-                finalRoomAvatarForCreator = otherUser.Avatar;
-            }
-        }
-        else if (chatRoom.IsGroup)
-        {
-            finalRoomNameForCreator = chatRoom.Name;
-            // finalRoomAvatarForCreator = chatRoom.Avatar; // if groups can have avatars
-        }
-
-
-        var creatorRoomDto = new ChatRoomDto(
-            chatRoom.Id,
-            finalRoomNameForCreator,
-            chatRoom.Description,
-            chatRoom.IsGroup,
-            finalRoomAvatarForCreator,
-            chatRoom.Created,
-            chatRoom.ChatRoomType,
-            0, // Initial message count
-            null, null, null, 0
-        );
-
-        if (chatRoom.IsGroup)
-        {
-            foreach (var memberIdToNotify in memberIdsToNotify)
-            {
-                var targetUser = await _context.Users.FindAsync(new object[] { memberIdToNotify }, cancellationToken);
-                if (targetUser == null) continue;
-
-                // For groups, the room name is the group name
-                string roomNameForMember = chatRoom.Name;
-                string? roomAvatarForMember = chatRoom.Avatar; // Group avatar if exists
-
-                var roomDtoForMember = new ChatRoomDto(
-                    chatRoom.Id,
-                    roomNameForMember,
-                    chatRoom.Description,
-                    chatRoom.IsGroup,
-                    roomAvatarForMember,
-                    chatRoom.Created,
-                    chatRoom.ChatRoomType,
-                    0,
-                    null, null, null, 0
-                );
-                await _chatHubService.SendChatRoomUpdateToUser(memberIdToNotify, roomDtoForMember);
+                finalDtoForRequester.Name = $"{otherUser.FirstName} {otherUser.LastName}";
+                finalDtoForRequester.Avatar = otherUser.Avatar;
             }
         }
 
-        // Add notification for creator
-        if (!string.IsNullOrEmpty(creatorUserId))
-        {
-            await _chatHubService.SendChatRoomUpdateToUser(creatorUserId, creatorRoomDto);
-        }
-
-        return creatorRoomDto;
+        return finalDtoForRequester;
     }
 }

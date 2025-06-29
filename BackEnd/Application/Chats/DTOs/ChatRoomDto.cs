@@ -1,18 +1,31 @@
-﻿using LawyerProject.Domain.Enums;
+﻿using AutoMapper;
+using LawyerProject.Domain.Entities;
+using LawyerProject.Domain.Enums;
 
 namespace LawyerProject.Application.Chats.DTOs;
 
-public record ChatRoomDto(
-    int Id,
-    string Name,
-    string? Description,
-    bool IsGroup,
-    string? Avatar,
-    DateTime CreatedAt,
-    ChatRoomType ChatRoomType,
-    int MessageCount,
-    string? LastMessageContent,
-    DateTime? LastMessageTime,
-    string? LastMessageSenderName,
-    int UnreadCount
-);
+public class ChatRoomDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsGroup { get; set; }
+    public string? Avatar { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public ChatRoomType ChatRoomType { get; set; }
+    public int UnreadCount { get; set; }
+    public ICollection<ChatRoomMemberDto> Members { get; set; } = new List<ChatRoomMemberDto>();
+    public string? LastMessageContent { get; set; }
+    public DateTime? LastMessageTime { get; set; }
+    public string? LastMessageSenderName { get; set; }
+    public int MessageCount { get; set; }
+
+    // پروفایل مپینگ برای این DTO
+    private class Mapping : Profile
+    {
+        public Mapping()
+        {
+            CreateMap<ChatRoom, ChatRoomDto>();
+        }
+    }
+}

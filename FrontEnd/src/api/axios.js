@@ -75,7 +75,7 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch (err) {
         clearAuthTokens();
-        window.location.href = '/login';
+        window.location.href = '/Home/login';
         return Promise.reject(error);
       }
     }

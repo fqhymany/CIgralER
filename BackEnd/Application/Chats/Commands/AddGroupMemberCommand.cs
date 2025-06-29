@@ -16,15 +16,17 @@ public class AddGroupMemberCommandHandler : IRequestHandler<AddGroupMemberComman
     private readonly IApplicationDbContext _context;
     private readonly IUser _user;
     private readonly IChatHubService _chatHubService;
+    private readonly IMapper _mapper;
 
     public AddGroupMemberCommandHandler(
         IApplicationDbContext context,
         IUser user,
-        IChatHubService chatHubService)
+        IChatHubService chatHubService, IMapper mapper)
     {
         _context = context;
         _user = user;
         _chatHubService = chatHubService;
+        _mapper = mapper;
     }
 
     public async Task<bool> Handle(AddGroupMemberCommand request, CancellationToken cancellationToken)
@@ -77,32 +79,42 @@ public class AddGroupMemberCommandHandler : IRequestHandler<AddGroupMemberComman
         var roomDto = await GetUpdatedRoomDto(request.ChatRoomId, cancellationToken);
         foreach (var member in chatRoom.Members)
         {
-            await _chatHubService.SendChatRoomUpdateToUser(member.UserId!, roomDto);
+            if (roomDto != null)
+            {
+                await _chatHubService.SendChatRoomUpdateToUser(member.UserId!, roomDto);
+            }
         }
 
         return true;
     }
 
-    private async Task<ChatRoomDto> GetUpdatedRoomDto(int roomId, CancellationToken cancellationToken)
+    private async Task<ChatRoomDto?> GetUpdatedRoomDto(int roomId, CancellationToken cancellationToken)
     {
-        // Implementation to get updated room DTO
         var room = await _context.ChatRooms
+            .AsNoTracking() 
+            .Include(r => r.Members)
+            .ThenInclude(m => m.User) 
             .Include(r => r.Messages)
             .FirstOrDefaultAsync(r => r.Id == roomId, cancellationToken);
 
-        return new ChatRoomDto(
-            room!.Id,
-            room.Name,
-            room.Description,
-            room.IsGroup,
-            room.Avatar,
-            room.Created,
-            room.ChatRoomType, 
-            room.Messages.Count,
-            room.Messages.LastOrDefault()?.Content,
-            room.Messages.LastOrDefault()?.Created,
-            null,
-            0
-        );
+       
+        if (room == null)
+        {
+            return null;
+        }
+
+        var roomDto = _mapper.Map<ChatRoomDto>(room);
+
+        var lastMessage = room.Messages.LastOrDefault();
+        if (lastMessage != null)
+        {
+            // اگر بخواهیم نام فرستنده را هم داشته باشیم، باید Sender را هم Include کنیم
+            // roomDto.LastMessageSenderName = lastMessage.Sender.FullName;
+        }
+
+        //todo UnreadCount را باید محاسبه کنید
+
+        return roomDto;
     }
+
 }

@@ -12,7 +12,13 @@
           "user-select",
           "backdrop-filter",
           "touch-action: none",
-          "-webkit-overflow-scrolling"
+          "-webkit-overflow-scrolling",
+          "position: sticky",
+          "scroll-behavior",
+          "scroll-behavior: smooth",
+          "overscroll-behavior",
+          "overscroll-behavior: contain",
+          "-webkit-text-size-adjust"
         ]
       }
     ]

@@ -27,7 +27,9 @@ export default function Login() {
       if (result.requiresRegionSelection) {
         setAvailableRegions(result.availableRegions);
       } else {
-        navigate('/');
+        const urlParams = new URLSearchParams(window.location.search);
+        const returnUrl = urlParams.get('returnUrl');
+        navigate(returnUrl || '/');
       }
     } catch (err) {
       setError(err.message || 'خطا در ورود به سیستم');
@@ -39,8 +41,9 @@ export default function Login() {
   const handleRegionSelect = async (regionId) => {
     try {
       await selectRegion(regionId);
-      // اگر تغییر مسیر صورت نگرفت، به صفحه خانه هدایت کن
-      navigate('/');
+      const urlParams = new URLSearchParams(window.location.search);
+      const returnUrl = urlParams.get('returnUrl');
+      navigate(returnUrl || '/');
     } catch (err) {
       setError(err.message || 'خطا در انتخاب ناحیه');
     }

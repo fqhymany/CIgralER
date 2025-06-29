@@ -27,7 +27,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
 
     public async Task<AuthResult> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
     {
-        var userId = _tokenService.ValidateToken(request.accessToken);
+        var userId = _currentUser.Id;
         if (userId == null)
             return new AuthResult { Succeeded = false, Error = "Invalid refreshToken" };
 
