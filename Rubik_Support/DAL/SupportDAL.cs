@@ -858,5 +858,466 @@ namespace Rubik_Support.DAL
 
         #endregion
 
+        #region SMS Queue Methods
+
+        public int AddToSMSQueue(SMSQueue sms)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            INSERT INTO Support_SMSQueue 
+            (TicketId, RecipientMobile, Message, ScheduledDate)
+            VALUES (@TicketId, @RecipientMobile, @Message, @ScheduledDate);
+            SELECT SCOPE_IDENTITY();", conn))
+                {
+                    cmd.Parameters.AddWithValue("@TicketId", sms.TicketId);
+                    cmd.Parameters.AddWithValue("@RecipientMobile", sms.RecipientMobile);
+                    cmd.Parameters.AddWithValue("@Message", sms.Message);
+                    cmd.Parameters.AddWithValue("@ScheduledDate", sms.ScheduledDate);
+
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public void CancelPendingSMS(int ticketId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            UPDATE Support_SMSQueue 
+            SET IsCancelled = 1 
+            WHERE TicketId = @TicketId AND IsSent = 0", conn))
+                {
+                    cmd.Parameters.AddWithValue("@TicketId", ticketId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public List<SMSQueue> GetPendingSMS()
+        {
+            var smsList = new List<SMSQueue>();
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            SELECT * FROM Support_SMSQueue 
+            WHERE IsSent = 0 AND IsCancelled = 0 
+            AND ScheduledDate <= GETDATE() 
+            AND RetryCount < 3
+            ORDER BY ScheduledDate", conn))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            smsList.Add(MapSMSQueue(reader));
+                        }
+                    }
+                }
+            }
+            return smsList;
+        }
+
+        public void MarkSMSAsSent(int smsId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            UPDATE Support_SMSQueue 
+            SET IsSent = 1, SentDate = GETDATE() 
+            WHERE Id = @Id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@Id", smsId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        #endregion
+
+        #region Agent Request Methods
+
+        public int CreateAgentRequest(int ticketId, int agentId, int timeoutSeconds)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            INSERT INTO Support_AgentRequests 
+            (TicketId, AgentId, TimeoutDate)
+            VALUES (@TicketId, @AgentId, DATEADD(SECOND, @Timeout, GETDATE()));
+            SELECT SCOPE_IDENTITY();", conn))
+                {
+                    cmd.Parameters.AddWithValue("@TicketId", ticketId);
+                    cmd.Parameters.AddWithValue("@AgentId", agentId);
+                    cmd.Parameters.AddWithValue("@Timeout", timeoutSeconds);
+
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public AgentRequest GetPendingAgentRequest(int ticketId, int agentId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            SELECT * FROM Support_AgentRequests 
+            WHERE TicketId = @TicketId AND AgentId = @AgentId 
+            AND ResponseDate IS NULL AND TimeoutDate > GETDATE()", conn))
+                {
+                    cmd.Parameters.AddWithValue("@TicketId", ticketId);
+                    cmd.Parameters.AddWithValue("@AgentId", agentId);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return MapAgentRequest(reader);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public void UpdateAgentRequestResponse(int requestId, bool isAccepted)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            UPDATE Support_AgentRequests 
+            SET ResponseDate = GETDATE(), IsAccepted = @IsAccepted 
+            WHERE Id = @Id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@Id", requestId);
+                    cmd.Parameters.AddWithValue("@IsAccepted", isAccepted);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public List<AgentRequest> GetExpiredRequests()
+        {
+            var requests = new List<AgentRequest>();
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            SELECT ar.*, a.UserId 
+            FROM Support_AgentRequests ar
+            INNER JOIN Support_Agents a ON ar.AgentId = a.Id
+            WHERE ar.ResponseDate IS NULL 
+            AND ar.TimeoutDate <= GETDATE()", conn))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            requests.Add(MapAgentRequest(reader));
+                        }
+                    }
+                }
+            }
+            return requests;
+        }
+
+        #endregion
+
+        #region User Limit Methods
+
+        public UserLimit GetUserLimit(string identifier, string identifierType)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            SELECT * FROM Support_UserLimits 
+            WHERE Identifier = @Identifier 
+            AND IdentifierType = @IdentifierType", conn))
+                {
+                    cmd.Parameters.AddWithValue("@Identifier", identifier);
+                    cmd.Parameters.AddWithValue("@IdentifierType", identifierType);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return MapUserLimit(reader);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public void UpdateUserLimit(string identifier, string identifierType)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            MERGE Support_UserLimits AS target
+            USING (SELECT @Identifier AS Identifier, @IdentifierType AS IdentifierType) AS source
+            ON target.Identifier = source.Identifier AND target.IdentifierType = source.IdentifierType
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    TicketCount = CASE 
+                        WHEN DATEDIFF(HOUR, LastTicketDate, GETDATE()) > 24 
+                        THEN 1 
+                        ELSE TicketCount + 1 
+                    END,
+                    LastTicketDate = GETDATE(),
+                    IsBlocked = CASE 
+                        WHEN TicketCount >= 5 AND DATEDIFF(HOUR, LastTicketDate, GETDATE()) <= 1 
+                        THEN 1 
+                        ELSE 0 
+                    END,
+                    BlockedUntil = CASE 
+                        WHEN TicketCount >= 5 AND DATEDIFF(HOUR, LastTicketDate, GETDATE()) <= 1 
+                        THEN DATEADD(HOUR, 24, GETDATE()) 
+                        ELSE NULL 
+                    END
+            WHEN NOT MATCHED THEN
+                INSERT (Identifier, IdentifierType, LastTicketDate, TicketCount)
+                VALUES (@Identifier, @IdentifierType, GETDATE(), 1);", conn))
+                {
+                    cmd.Parameters.AddWithValue("@Identifier", identifier);
+                    cmd.Parameters.AddWithValue("@IdentifierType", identifierType);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        #endregion
+
+        #region Ticket Assignment Methods
+
+        public bool TryLockTicketForAssignment(int ticketId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var trans = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        // Use UPDLOCK to prevent race conditions
+                        using (var cmd = new SqlCommand(@"
+                    UPDATE Support_Tickets WITH (UPDLOCK, ROWLOCK)
+                    SET AssignmentAttempts = AssignmentAttempts + 1,
+                        LastAssignmentDate = GETDATE()
+                    WHERE Id = @Id 
+                    AND SupportUserId IS NULL 
+                    AND Status = 1
+                    AND AssignmentAttempts < 5", conn, trans))
+                        {
+                            cmd.Parameters.AddWithValue("@Id", ticketId);
+                            var affected = cmd.ExecuteNonQuery();
+
+                            if (affected > 0)
+                            {
+                                trans.Commit();
+                                return true;
+                            }
+                            else
+                            {
+                                trans.Rollback();
+                                return false;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        trans.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public SupportAgent GetNextAvailableAgent(int excludeAgentId = 0, string specialty = null)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                var query = @"
+            SELECT TOP 1 a.*, 
+                   u.FirstName + ' ' + u.LastName AS UserFullName,
+                   u.Mobile AS UserMobile,
+                   u.Email AS UserEmail
+            FROM Support_Agents a
+            INNER JOIN KCI_Users u ON a.UserId = u.id
+            WHERE a.IsActive = 1 
+                  AND a.IsOnline = 1 
+                  AND a.CurrentActiveTickets < a.MaxConcurrentTickets
+                  AND a.Id != @ExcludeId";
+
+                if (!string.IsNullOrEmpty(specialty))
+                {
+                    query += " AND (a.Specialties LIKE @Specialty OR a.Specialties IS NULL)";
+                }
+
+                // Smart ordering: least busy agents first, then by priority
+                query += @" ORDER BY 
+                    (CAST(a.CurrentActiveTickets AS FLOAT) / a.MaxConcurrentTickets),
+                    a.Priority, 
+                    a.TotalHandledTickets DESC";
+
+                using (var cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@ExcludeId", excludeAgentId);
+                    if (!string.IsNullOrEmpty(specialty))
+                    {
+                        cmd.Parameters.AddWithValue("@Specialty", $"%{specialty}%");
+                    }
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return MapAgent(reader);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        #endregion
+
+        #region Helper Mapping Methods
+
+        private SMSQueue MapSMSQueue(SqlDataReader reader)
+        {
+            return new SMSQueue
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                TicketId = Convert.ToInt32(reader["TicketId"]),
+                RecipientMobile = reader["RecipientMobile"].ToString(),
+                Message = reader["Message"].ToString(),
+                ScheduledDate = Convert.ToDateTime(reader["ScheduledDate"]),
+                SentDate = reader["SentDate"] as DateTime?,
+                IsSent = Convert.ToBoolean(reader["IsSent"]),
+                IsCancelled = Convert.ToBoolean(reader["IsCancelled"]),
+                RetryCount = Convert.ToInt32(reader["RetryCount"])
+            };
+        }
+
+        private AgentRequest MapAgentRequest(SqlDataReader reader)
+        {
+            return new AgentRequest
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                TicketId = Convert.ToInt32(reader["TicketId"]),
+                AgentId = Convert.ToInt32(reader["AgentId"]),
+                RequestDate = Convert.ToDateTime(reader["RequestDate"]),
+                ResponseDate = reader["ResponseDate"] as DateTime?,
+                IsAccepted = reader["IsAccepted"] as bool?,
+                TimeoutDate = Convert.ToDateTime(reader["TimeoutDate"])
+            };
+        }
+
+        private UserLimit MapUserLimit(SqlDataReader reader)
+        {
+            return new UserLimit
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                Identifier = reader["Identifier"].ToString(),
+                IdentifierType = reader["IdentifierType"].ToString(),
+                LastTicketDate = Convert.ToDateTime(reader["LastTicketDate"]),
+                TicketCount = Convert.ToInt32(reader["TicketCount"]),
+                IsBlocked = Convert.ToBoolean(reader["IsBlocked"]),
+                BlockedUntil = reader["BlockedUntil"] as DateTime?
+            };
+        }
+
+        #endregion
+
+
+        // گرفتن درخواست AgentRequest بر اساس Id
+        public AgentRequest GetAgentRequestById(int requestId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            SELECT * FROM Support_AgentRequests 
+            WHERE Id = @Id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@Id", requestId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return MapAgentRequest(reader);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        // افزایش شمارنده تلاش ارسال SMS
+        public void IncrementSMSRetryCount(int smsId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            UPDATE Support_SMSQueue 
+            SET RetryCount = RetryCount + 1 
+            WHERE Id = @Id", conn))
+                {
+                    cmd.Parameters.AddWithValue("@Id", smsId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        // لغو سایر درخواست‌های Agent برای یک تیکت به جز Agent فعلی
+        public void CancelOtherAgentRequests(int ticketId, int acceptedAgentId)
+        {
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(@"
+            UPDATE Support_AgentRequests
+            SET ResponseDate = GETDATE(), IsAccepted = 0
+            WHERE TicketId = @TicketId 
+              AND AgentId <> @AcceptedAgentId
+              AND ResponseDate IS NULL", conn))
+                {
+                    cmd.Parameters.AddWithValue("@TicketId", ticketId);
+                    cmd.Parameters.AddWithValue("@AcceptedAgentId", acceptedAgentId);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public SupportAgent GetAgentById(int agentId)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand("SELECT * FROM SupportAgent WHERE Id = @Id", connection))
+            {
+                command.Parameters.AddWithValue("@Id", agentId);
+                connection.Open();
+                using (var reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        return MapAgent(reader);
+                    }
+                }
+            }
+            return null;
+        }
     }
 }

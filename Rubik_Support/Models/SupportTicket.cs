@@ -17,11 +17,19 @@ namespace Rubik_Support.Models
         public DateTime? CloseDate { get; set; }
         public bool IsActive { get; set; }
         public string ConnectionId { get; set; }
+        public int AssignmentAttempts { get; set; }
+        public DateTime? LastAssignmentDate { get; set; }
 
         // Navigation Properties
         public SupportVisitor Visitor { get; set; }
         public string UserFullName { get; set; }
         public string SupportFullName { get; set; }
         public List<SupportMessage> Messages { get; set; }
+
+        // Helper Properties
+        public bool IsWaitingForAssignment => Status == TicketStatus.Open &&
+                                              !SupportUserId.HasValue &&
+                                              AssignmentAttempts < 3;
+
     }
 }

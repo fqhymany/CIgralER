@@ -5,7 +5,7 @@ using System.Web;
 using System.Web.Script.Serialization;
 using Rubik_Support.BLL;
 
-public class CreateTicket : IHttpHandler
+public class CreateTicket : IHttpHandler, System.Web.SessionState.IRequiresSessionState
 {
     public void ProcessRequest(HttpContext context)
     {
@@ -18,31 +18,52 @@ public class CreateTicket : IHttpHandler
             var jsonString = new System.IO.StreamReader(context.Request.InputStream).ReadToEnd();
             dynamic data = serializer.DeserializeObject(jsonString);
             
-            var mobile = data["mobile"]?.ToString();
-            var firstName = data["firstName"]?.ToString();
-            var lastName = data["lastName"]?.ToString();
             var subject = data["subject"]?.ToString();
             var initialMessage = data["initialMessage"]?.ToString();
             
-            if (string.IsNullOrEmpty(mobile))
+            // Optional fields (only for guests)
+            var mobile = data["mobile"]?.ToString();
+            var firstName = data["firstName"]?.ToString();
+            var lastName = data["lastName"]?.ToString();
+            
+            // Check if user is logged in
+            var userId = context.Session["UserId"] as int?;
+            
+            if (!userId.HasValue || userId.Value <= 0)
             {
-                context.Response.Write(serializer.Serialize(new 
+                // Guest user - mobile is required
+                if (string.IsNullOrEmpty(mobile))
                 {
-                    success = false,
-                    message = "شماره موبایل الزامی است"
-                }));
-                return;
+                    context.Response.Write(serializer.Serialize(new 
+                    {
+                        success = false,
+                        message = "برای کاربران مهمان، شماره موبایل الزامی است"
+                    }));
+                    return;
+                }
             }
             
             var bll = new SupportBLL();
-            var ticketId = bll.CreateNewTicket(mobile, subject, initialMessage, 
-                firstName, lastName);
+            
+            // Use the new method that handles user detection and rate limiting
+            var ticketId = bll.CreateTicketWithUserDetection(
+                context, 
+                subject, 
+                initialMessage, 
+                mobile);
+            
+            // Get ticket info for response
+            var ticket = bll.GetTicket(ticketId);
             
             context.Response.Write(serializer.Serialize(new 
             {
                 success = true,
                 ticketId = ticketId,
-                message = "تیکت با موفقیت ایجاد شد"
+                ticketNumber = ticket.TicketNumber,
+                message = "تیکت با موفقیت ایجاد شد",
+                isUserLoggedIn = userId.HasValue && userId.Value > 0,
+                assignmentStatus = ticket.SupportUserId.HasValue ? 
+                    "assigned" : "pending"
             }));
         }
         catch (Exception ex)
@@ -50,7 +71,8 @@ public class CreateTicket : IHttpHandler
             context.Response.Write(serializer.Serialize(new 
             {
                 success = false,
-                message = "خطا در ایجاد تیکت: " + ex.Message
+                message = ex.Message,
+                isRateLimitError = ex.Message.Contains("حد مجاز")
             }));
         }
     }

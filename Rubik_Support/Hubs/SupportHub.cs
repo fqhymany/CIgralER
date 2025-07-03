@@ -3,18 +3,28 @@ using Rubik_Support.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.Remoting.Contexts;
 using System.Threading.Tasks;
 using Microsoft.AspNet.SignalR;
 using Microsoft.AspNet.SignalR.Hubs;
+using System.Collections.Concurrent;
 
 namespace Rubik_Support.Hubs
 {
     [HubName("supportHub")]
     public class SupportHub : Hub
     {
-        private static readonly Dictionary<string, string> _connections = new Dictionary<string, string>();
+        private static readonly ConcurrentDictionary<string, UserConnection> _connections =
+            new ConcurrentDictionary<string, UserConnection>();
         private readonly SupportBLL _bll = new SupportBLL();
+
+        public class UserConnection
+        {
+            public string ConnectionId { get; set; }
+            public int? UserId { get; set; }
+            public string UserType { get; set; } // "Agent", "User", "Visitor"
+            public DateTime ConnectedAt { get; set; }
+            public DateTime LastActivity { get; set; }
+        }
 
         public override Task OnConnected()
         {
@@ -23,54 +33,128 @@ namespace Rubik_Support.Hubs
 
         public override Task OnDisconnected(bool stopCalled)
         {
-            var agentEntry = _connections.FirstOrDefault(x => x.Value == Context.ConnectionId && x.Key.StartsWith("agent-"));
-            if (!string.IsNullOrEmpty(agentEntry.Key))
+            UserConnection connection;
+            if (_connections.TryRemove(Context.ConnectionId, out connection))
             {
-                var userId = Convert.ToInt32(agentEntry.Key.Replace("agent-", ""));
-                _bll.SetAgentOnline(userId, false);
-                _connections.Remove(agentEntry.Key);
-            }
+                if (connection.UserType == "Agent" && connection.UserId.HasValue)
+                {
+                    _bll.SetAgentOnline(connection.UserId.Value, false);
+                    Groups.Remove(Context.ConnectionId, "agents");
 
-            var ticketId = _connections.FirstOrDefault(x => x.Value == Context.ConnectionId).Key;
-            if (!string.IsNullOrEmpty(ticketId))
-            {
-                _connections.Remove(ticketId);
-                Groups.Remove(Context.ConnectionId, $"ticket-{ticketId}");
+                    // Notify other agents
+                    Clients.Group("agents").agentStatusChanged(connection.UserId.Value, false);
+                }
+                else if (connection.UserType == "Visitor" || connection.UserType == "User")
+                {
+                    // Remove from ticket groups
+                    var ticketGroups = GetUserTicketGroups(Context.ConnectionId);
+                    foreach (var group in ticketGroups)
+                    {
+                        Groups.Remove(Context.ConnectionId, group);
+                    }
+                }
             }
 
             return base.OnDisconnected(stopCalled);
         }
 
-        // Visitor joins chat
-        public async Task JoinChat(int ticketId)
+        // visitor/user join
+        public async Task JoinChat(int ticketId, bool isAuthenticated = false)
         {
-            _connections[$"ticket-{ticketId}"] = Context.ConnectionId;
+            var ticket = _bll.GetTicket(ticketId);
+            if (ticket == null) return;
+
+            var userType = isAuthenticated ? "User" : "Visitor";
+            _connections[Context.ConnectionId] = new UserConnection
+            {
+                ConnectionId = Context.ConnectionId,
+                UserId = ticket.UserId,
+                UserType = userType,
+                ConnectedAt = DateTime.Now,
+                LastActivity = DateTime.Now
+            };
+
             await Groups.Add(Context.ConnectionId, $"ticket-{ticketId}");
 
-            // Notify support users
-            await Clients.Group("support").ticketOnline(ticketId);
+            // Load messages
+            await Clients.Caller.loadMessages(ticket.Messages.Select(m => new
+            {
+                id = m.Id,
+                message = m.Message,
+                senderType = (int)m.SenderType,
+                senderName = m.SenderName,
+                createDate = m.CreateDate,
+                attachments = m.Attachments
+            }));
+
+            // Notify agents
+            await Clients.Group("agents").ticketOnline(ticketId, userType);
         }
 
-        // Support joins chat
+        // agent join
         public async Task JoinSupport(int userId)
         {
+            var agent = _bll.GetOrCreateAgent(userId);
+            if (agent == null || !agent.IsActive)
+            {
+                await Clients.Caller.error("شما دسترسی پشتیبانی ندارید");
+                return;
+            }
+
+            _connections[Context.ConnectionId] = new UserConnection
+            {
+                ConnectionId = Context.ConnectionId,
+                UserId = userId,
+                UserType = "Agent",
+                ConnectedAt = DateTime.Now,
+                LastActivity = DateTime.Now
+            };
+
             _bll.SetAgentOnline(userId, true);
+            await Groups.Add(Context.ConnectionId, "agents");
 
-            await Groups.Add(Context.ConnectionId, "support");
+            // Load active tickets
+            var tickets = _bll.GetActiveTickets();
+            await Clients.Caller.loadDashboard(new
+            {
+                tickets = tickets.Select(t => new
+                {
+                    id = t.Id,
+                    ticketNumber = t.TicketNumber,
+                    subject = t.Subject,
+                    status = (int)t.Status,
+                    createDate = t.CreateDate,
+                    visitor = t.Visitor,
+                    supportUserId = t.SupportUserId,
+                    supportFullName = t.SupportFullName,
+                    isWaitingForAssignment = t.IsWaitingForAssignment,
+                    lastMessage = t.Messages?.LastOrDefault()?.Message
+                }),
+                agentInfo = new
+                {
+                    currentTickets = agent.CurrentActiveTickets,
+                    maxTickets = agent.MaxConcurrentTickets,
+                    canHandleMore = agent.CanHandleMoreTickets
+                }
+            });
 
-            _connections[$"agent-{userId}"] = Context.ConnectionId;
-
-            var tickets = _bll.GetActiveTickets(userId);
-            await Clients.Caller.loadActiveTickets(tickets);
+            // Notify other agents
+            await Clients.OthersInGroup("agents").agentStatusChanged(userId, true);
         }
 
-        // Send message
+        // Send message withfeatures
         public async Task SendMessage(int ticketId, string message, bool isSupport)
         {
             try
             {
-                var senderType = isSupport ? SenderType.Support : SenderType.Visitor;
-                var messageId = _bll.SendMessage(ticketId, message, null, senderType);
+                var connection = _connections.GetOrAdd(Context.ConnectionId, new UserConnection());
+                connection.LastActivity = DateTime.Now;
+
+                var senderId = connection.UserId;
+                var senderType = isSupport ? SenderType.Support :
+                    (senderId.HasValue ? SenderType.Support : SenderType.Visitor);
+
+                var messageId = _bll.SendMessage(ticketId, message, senderId, senderType);
 
                 var messageData = new
                 {
@@ -79,16 +163,20 @@ namespace Rubik_Support.Hubs
                     message = message,
                     senderType = senderType,
                     createDate = DateTime.Now,
-                    senderName = isSupport ? "پشتیبان" : "بازدیدکننده"
+                    senderName = isSupport ? "پشتیبان" : "کاربر"
                 };
 
-                // Send to ticket group
+                // Send to all in ticket group
                 await Clients.Group($"ticket-{ticketId}").receiveMessage(messageData);
 
-                // Notify support group
+                // Update ticket list for agents
                 if (!isSupport)
                 {
-                    await Clients.Group("support").newMessage(ticketId, message);
+                    await Clients.Group("agents").ticketUpdated(ticketId, new
+                    {
+                        lastMessage = message,
+                        hasNewMessage = true
+                    });
                 }
             }
             catch (Exception ex)
@@ -97,46 +185,142 @@ namespace Rubik_Support.Hubs
             }
         }
 
-        // Support typing indicator
+        // Accept ticket assignment
+        public async Task AcceptTicketAssignment(int ticketId)
+        {
+            try
+            {
+                var connection = GetCurrentConnection();
+                if (connection?.UserId == null || connection.UserType != "Agent")
+                {
+                    await Clients.Caller.error("دسترسی غیرمجاز");
+                    return;
+                }
+
+                _bll.AcceptTicketAssignment(ticketId, connection.UserId.Value);
+
+                // Join ticket group
+                await Groups.Add(Context.ConnectionId, $"ticket-{ticketId}");
+
+                // Notify all
+                await Clients.All.ticketAssigned(ticketId, connection.UserId.Value);
+                await Clients.Caller.assignmentAccepted(ticketId);
+            }
+            catch (Exception ex)
+            {
+                await Clients.Caller.error(ex.Message);
+            }
+        }
+
+        // Decline ticket assignment
+        public async Task DeclineTicketAssignment(int ticketId)
+        {
+            try
+            {
+                var connection = GetCurrentConnection();
+                if (connection?.UserId == null || connection.UserType != "Agent")
+                {
+                    await Clients.Caller.error("دسترسی غیرمجاز");
+                    return;
+                }
+
+                _bll.DeclineTicketAssignment(ticketId, connection.UserId.Value);
+                await Clients.Caller.assignmentDeclined(ticketId);
+            }
+            catch (Exception ex)
+            {
+                await Clients.Caller.error(ex.Message);
+            }
+        }
+
+        // typing indicator
         public async Task Typing(int ticketId, bool isTyping)
         {
-            await Clients.OthersInGroup($"ticket-{ticketId}").typing(isTyping);
+            var connection = GetCurrentConnection();
+            if (connection != null)
+            {
+                connection.LastActivity = DateTime.Now;
+                await Clients.OthersInGroup($"ticket-{ticketId}").typing(isTyping, connection.UserType);
+            }
         }
 
         // Mark messages as read
-        public async Task MarkAsRead(int ticketId, int userId)
+        public async Task MarkAsRead(int ticketId)
         {
-            _bll.MarkMessagesAsRead(ticketId, userId);
-            await Clients.OthersInGroup($"ticket-{ticketId}").messagesRead(ticketId);
-        }
-
-        // Close ticket
-        public async Task CloseTicket(int ticketId, int userId)
-        {
-            _bll.CloseTicket(ticketId, userId);
-            await Clients.Group($"ticket-{ticketId}").ticketClosed(ticketId);
-            await Clients.Group("support").ticketClosed(ticketId);
-        }
-
-        // Assign ticket to support
-        public async Task AssignTicket(int ticketId, int supportUserId)
-        {
-            _bll.AssignTicket(ticketId, supportUserId);
-            await Clients.Group("support").ticketAssigned(ticketId, supportUserId);
-        }
-
-        public async Task RequestAutoAssign(int ticketId)
-        {
-            var agent = _bll.AssignTicketToAgent(ticketId);
-            if (agent != null)
+            var connection = GetCurrentConnection();
+            if (connection?.UserId != null)
             {
-                await Clients.Group("support").ticketAssigned(ticketId, agent.UserId);
-                await Clients.Caller.agentAssigned(agent.UserFullName);
+                _bll.MarkMessagesAsRead(ticketId, connection.UserId.Value);
+                await Clients.OthersInGroup($"ticket-{ticketId}").messagesRead(ticketId);
             }
-            else
+        }
+
+        // Transfer ticket to another agent
+        public async Task TransferTicket(int ticketId, int targetAgentId)
+        {
+            try
             {
-                await Clients.Caller.noAgentAvailable();
+                var connection = GetCurrentConnection();
+                if (connection?.UserType != "Agent")
+                {
+                    await Clients.Caller.error("فقط پشتیبان‌ها می‌توانند تیکت انتقال دهند");
+                    return;
+                }
+
+                _bll.ReleaseTicketFromAgent(ticketId);
+                _bll.AssignTicket(ticketId, targetAgentId);
+
+                await Clients.All.ticketTransferred(ticketId, targetAgentId);
             }
+            catch (Exception ex)
+            {
+                await Clients.Caller.error(ex.Message);
+            }
+        }
+
+        // Heartbeat to keep connection alive
+        public void Heartbeat()
+        {
+            var connection = GetCurrentConnection();
+            if (connection != null)
+            {
+                connection.LastActivity = DateTime.Now;
+
+                if (connection.UserType == "Agent" && connection.UserId.HasValue)
+                {
+                    // Update agent online status
+                    _bll.SetAgentOnline(connection.UserId.Value, true);
+                }
+            }
+        }
+
+        // Get online agents
+        public async Task GetOnlineAgents()
+        {
+            var agents = _bll.GetOnlineAgents();
+            await Clients.Caller.updateOnlineAgents(agents.Select(a => new
+            {
+                id = a.Id,
+                userId = a.UserId,
+                name = a.UserFullName,
+                currentTickets = a.CurrentActiveTickets,
+                maxTickets = a.MaxConcurrentTickets,
+                isAvailable = a.IsAvailable
+            }));
+        }
+
+        // Helper methods
+        private UserConnection GetCurrentConnection()
+        {
+            UserConnection connection;
+            _connections.TryGetValue(Context.ConnectionId, out connection);
+            return connection;
+        }
+
+        private List<string> GetUserTicketGroups(string connectionId)
+        {
+            // This would need to be tracked separately in production
+            return new List<string>();
         }
     }
 }

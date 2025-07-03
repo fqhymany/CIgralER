@@ -22,6 +22,7 @@ namespace Rubik_Support.Models
         public string Notes { get; set; }
         public DateTime CreateDate { get; set; }
         public DateTime? ModifiedDate { get; set; }
+        public int ResponseTimeout { get; set; } = 60;
 
         // Navigation Properties
         public string UserFullName { get; set; }
@@ -35,5 +36,8 @@ namespace Rubik_Support.Models
 
         public bool IsAvailable => IsActive && IsOnline &&
                                    CurrentActiveTickets < MaxConcurrentTickets;
+
+        public bool CanHandleMoreTickets => IsActive && IsOnline &&
+                                            CurrentActiveTickets < MaxConcurrentTickets;
     }
 }

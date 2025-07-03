@@ -56,19 +56,28 @@
     <Compile Include="DAL\SupportDAL.cs" />
     <Compile Include="Hubs\SupportHub.cs" />
     <Compile Include="Models\AgentActionType.cs" />
+    <Compile Include="Models\AgentRequest.cs" />
     <Compile Include="Models\AgentWorkingHours.cs" />
+    <Compile Include="Models\AssignmentFailureReason.cs" />
     <Compile Include="Models\LogLevel.cs" />
     <Compile Include="Models\SenderType.cs" />
+    <Compile Include="Models\SMSQueue.cs" />
     <Compile Include="Models\SupportAgent.cs" />
     <Compile Include="Models\SupportAgentLog.cs" />
     <Compile Include="Models\SupportAttachment.cs" />
     <Compile Include="Models\SupportMessage.cs" />
     <Compile Include="Models\SupportTicket.cs" />
     <Compile Include="Models\SupportVisitor.cs" />
+    <Compile Include="Models\TicketAssignmentResult.cs" />
     <Compile Include="Models\TicketStatus.cs" />
+    <Compile Include="Models\UserLimit.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\RubikSmsPanel\RubikSmsPanel.csproj">
+      <Project>{6f5b208a-9dfd-4aac-b809-88080c8bd4de}</Project>
+      <Name>RubikSmsPanel</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Rubik_SDK\Rubik_SDK.csproj">
       <Project>{4ede7391-2371-45f0-b3c9-38b587c0f3bd}</Project>
       <Name>Rubik_SDK</Name>

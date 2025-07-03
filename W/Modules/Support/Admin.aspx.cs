@@ -19,6 +19,9 @@ public partial class Modules_Support_Admin : System.Web.UI.Page
         LoadGroups();
         LoadSupportUsers();
         LoadStatistics();
+        LoadAgents();
+        LoadMonitoringData();
+        LoadAvailableUsers();
     }
 
     private void LoadSettings()
@@ -40,6 +43,21 @@ public partial class Modules_Support_Admin : System.Web.UI.Page
 
         txtAllowedFileTypes.Text = settings.ContainsKey("AllowedFileTypes") ?
             settings["AllowedFileTypes"] : "";
+
+        txtNotificationDelay.Text = settings.ContainsKey("NotificationDelay") ?
+            settings["NotificationDelay"] : "5";
+        txtMaxTicketsPerHour.Text = settings.ContainsKey("MaxTicketsPerHour") ?
+            settings["MaxTicketsPerHour"] : "5";
+        txtAlternativePhone.Text = settings.ContainsKey("AlternativePhone") ?
+            settings["AlternativePhone"] : "";
+        txtAlternativeEmail.Text = settings.ContainsKey("AlternativeEmail") ?
+            settings["AlternativeEmail"] : "";
+        chkAutoAssignment.Checked = settings.ContainsKey("AutoAssignment") ?
+            settings["AutoAssignment"] == "true" : true;
+        txtAgentResponseTimeout.Text = settings.ContainsKey("AgentResponseTimeout") ?
+            settings["AgentResponseTimeout"] : "60";
+        txtMaxAssignmentAttempts.Text = settings.ContainsKey("MaxAssignmentAttempts") ?
+            settings["MaxAssignmentAttempts"] : "3";
     }
 
     private void LoadGroups()
@@ -180,7 +198,14 @@ public partial class Modules_Support_Admin : System.Web.UI.Page
 
             _dal.UpdateSetting("AllowedFileTypes", txtAllowedFileTypes.Text);
 
-            // Show success message
+            _dal.UpdateSetting("NotificationDelay", txtNotificationDelay.Text);
+            _dal.UpdateSetting("MaxTicketsPerHour", txtMaxTicketsPerHour.Text);
+            _dal.UpdateSetting("AlternativePhone", txtAlternativePhone.Text);
+            _dal.UpdateSetting("AlternativeEmail", txtAlternativeEmail.Text);
+            _dal.UpdateSetting("AutoAssignment", chkAutoAssignment.Checked ? "true" : "false");
+            _dal.UpdateSetting("AgentResponseTimeout", txtAgentResponseTimeout.Text);
+            _dal.UpdateSetting("MaxAssignmentAttempts", txtMaxAssignmentAttempts.Text);
+
             ScriptManager.RegisterStartupScript(this, GetType(), "success",
                 "alert('تنظیمات با موفقیت ذخیره شد');", true);
         }
@@ -303,4 +328,182 @@ public partial class Modules_Support_Admin : System.Web.UI.Page
         }
     }
 
+    private void LoadAgents()
+    {
+        var agents = _dal.GetAllAgents();
+        gvAgents.DataSource = agents;
+        gvAgents.DataBind();
+    }
+
+    private void LoadAvailableUsers()
+    {
+        using (var conn = new SqlConnection(_connectionString))
+        {
+            conn.Open();
+            var query = @"
+            SELECT u.id, u.FirstName + ' ' + u.LastName AS FullName
+            FROM KCI_Users u
+            LEFT JOIN Support_Agents a ON u.id = a.UserId
+            WHERE u.Enable = 1 AND a.Id IS NULL
+            ORDER BY FullName";
+
+            using (var cmd = new SqlCommand(query, conn))
+            {
+                ddlNewAgent.DataSource = cmd.ExecuteReader();
+                ddlNewAgent.DataBind();
+                ddlNewAgent.Items.Insert(0, new ListItem("-- انتخاب کاربر --", ""));
+            }
+        }
+    }
+
+    protected void btnAddAgent_Click(object sender, EventArgs e)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(ddlNewAgent.SelectedValue))
+            {
+                ShowMessage("لطفا یک کاربر انتخاب کنید", "error");
+                return;
+            }
+
+            var agent = new Rubik_Support.Models.SupportAgent
+            {
+                UserId = Convert.ToInt32(ddlNewAgent.SelectedValue),
+                IsActive = true,
+                MaxConcurrentTickets = Convert.ToInt32(txtNewAgentMaxTickets.Text),
+                Specialties = txtNewAgentSpecialties.Text,
+                Priority = 1
+            };
+
+            _dal.CreateAgent(agent);
+
+            LoadAgents();
+            LoadAvailableUsers();
+            ShowMessage("پشتیبان با موفقیت اضافه شد", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowMessage("خطا: " + ex.Message, "error");
+        }
+    }
+
+    protected void gvAgents_RowCommand(object sender, GridViewCommandEventArgs e)
+    {
+        var agentId = Convert.ToInt32(e.CommandArgument);
+
+        if (e.CommandName == "EditAgent")
+        {
+            // Show edit modal or redirect to edit page
+            Response.Redirect("EditAgent.aspx?id=" + agentId);
+        }
+        else if (e.CommandName == "ToggleAgent")
+        {
+            var agent = _dal.GetAgentById(agentId);
+            if (agent != null)
+            {
+                agent.IsActive = !agent.IsActive;
+                _dal.UpdateAgent(agent);
+                LoadAgents();
+            }
+        }
+    }
+
+    // مانیتورینگ
+    private void LoadMonitoringData()
+    {
+        using (var conn = new SqlConnection(_connectionString))
+        {
+            conn.Open();
+
+            // Pending SMS
+            using (var cmd = new SqlCommand(
+                "SELECT COUNT(*) FROM Support_SMSQueue WHERE IsSent = 0 AND IsCancelled = 0", conn))
+            {
+                lblPendingSMS.Text = cmd.ExecuteScalar().ToString();
+            }
+
+            // Expired Requests
+            using (var cmd = new SqlCommand(@"
+            SELECT COUNT(*) FROM Support_AgentRequests 
+            WHERE ResponseDate IS NULL AND TimeoutDate <= GETDATE()", conn))
+            {
+                lblExpiredRequests.Text = cmd.ExecuteScalar().ToString();
+            }
+
+            // Last SMS Process
+            using (var cmd = new SqlCommand(@"
+            SELECT TOP 1 SentDate FROM Support_SMSQueue 
+            WHERE IsSent = 1 ORDER BY SentDate DESC", conn))
+            {
+                var lastProcess = cmd.ExecuteScalar();
+                lblLastSMSProcess.Text = lastProcess != null ?
+                    Convert.ToDateTime(lastProcess).ToString("HH:mm:ss") : "هرگز";
+            }
+
+            // Load recent logs
+            LoadRecentLogs();
+        }
+    }
+
+    private void LoadRecentLogs()
+    {
+        using (var conn = new SqlConnection(_connectionString))
+        {
+            conn.Open();
+            var query = @"
+            SELECT TOP 50 * FROM Support_Logs 
+            WHERE CreateDate >= DATEADD(HOUR, -24, GETDATE())
+            ORDER BY CreateDate DESC";
+
+            using (var cmd = new SqlCommand(query, conn))
+            {
+                using (var adapter = new SqlDataAdapter(cmd))
+                {
+                    var dt = new DataTable();
+                    adapter.Fill(dt);
+                    gvLogs.DataSource = dt;
+                    gvLogs.DataBind();
+                }
+            }
+        }
+    }
+
+    protected void btnRefreshLogs_Click(object sender, EventArgs e)
+    {
+        LoadMonitoringData();
+    }
+
+    // Helper methods
+    protected string GetLogLevelClass(object logLevel)
+    {
+        var level = Convert.ToByte(logLevel);
+        switch (level)
+        {
+            case 1: return "info";
+            case 2: return "warning";
+            case 3: return "danger";
+            default: return "secondary";
+        }
+    }
+
+    protected string GetLogLevelText(object logLevel)
+    {
+        var level = Convert.ToByte(logLevel);
+        switch (level)
+        {
+            case 1: return "اطلاعات";
+            case 2: return "هشدار";
+            case 3: return "خطا";
+            default: return "نامشخص";
+        }
+    }
+
+    private void ShowMessage(string message, string type)
+    {
+        var script = type == "error" ?
+            "alert('خطا: " + message + "');" :
+            "alert('" + message + "');";
+
+        ScriptManager.RegisterStartupScript(this, GetType(), "message", script, true);
+    }
 }
